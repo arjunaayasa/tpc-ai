@@ -33,17 +33,19 @@ enum RegulationStatus {
 }
 
 model Document {
-  id           String         @id @default(uuid())
+  id           String             @id @default(uuid())
   fileName     String
   originalName String
   mimeType     String
   filePath     String
-  sha256       String         @unique
-  status       DocumentStatus @default(uploaded)
+  sha256       String             @unique
+  status       DocumentStatus     @default(uploaded)
   lastError    String?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
   metadata     DocumentMetadata?
+  content      DocumentContent?
+  chunks       RegulationChunk[]
 }
 
 model DocumentMetadata {
@@ -61,4 +63,31 @@ model DocumentMetadata {
   extractionNotes Json?
   updatedByUser   Boolean          @default(false)
   updatedAt       DateTime         @updatedAt
+}
+
+model DocumentContent {
+  id         String   @id @default(uuid())
+  documentId String   @unique
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  fullText   String
+  textHash   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model RegulationChunk {
+  id             String   @id @default(uuid())
+  documentId     String
+  document       Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  anchorCitation String
+  pasal          String?
+  ayat           String?
+  huruf          String?
+  orderIndex     Int
+  text           String
+  tokenEstimate  Int?
+  createdAt      DateTime @default(now())
+
+  @@index([documentId, orderIndex])
+  @@index([documentId, pasal])
 }

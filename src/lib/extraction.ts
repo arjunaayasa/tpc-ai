@@ -9,9 +9,9 @@ const MAX_CHARS = 10000;
  */
 export async function extractPdfText(filePath: string): Promise<string> {
     try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const pdfParseModule = await import('pdf-parse') as any;
-        const pdfParse = pdfParseModule.default || pdfParseModule;
+        // Use require for pdf-parse as it works better with CommonJS
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const pdfParse = require('pdf-parse');
         const buffer = await fs.readFile(filePath);
         const data = await pdfParse(buffer, {
             max: 2, // Only first 2 pages
@@ -28,9 +28,9 @@ export async function extractPdfText(filePath: string): Promise<string> {
  */
 export async function extractHtmlText(filePath: string): Promise<string> {
     try {
-        const { load } = await import('cheerio');
+        const cheerio = await import('cheerio');
         const html = await fs.readFile(filePath, 'utf-8');
-        const $ = load(html);
+        const $ = cheerio.load(html);
 
         // Remove script and style elements
         $('script, style, noscript').remove();

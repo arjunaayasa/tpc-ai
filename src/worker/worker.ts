@@ -2,6 +2,7 @@ import { Worker, Job } from 'bullmq';
 import { PrismaClient } from '@prisma/client';
 import { extractText } from '../lib/extraction';
 import { extractMetadataFromText } from '../lib/heuristics';
+import { chunkByPasal, hashText } from '../lib/chunking';
 import { redisUrl } from '../lib/queue';
 
 const prisma = new PrismaClient();
@@ -32,21 +33,37 @@ async function processExtractMetadata(job: Job<ExtractMetadataJobData>): Promise
 
         console.log(`[Worker] Reading file: ${document.filePath}`);
 
-        // 2. Extract text from file
-        let text: string;
+        // 2. Extract full text from file
+        let fullText: string;
         try {
-            text = await extractText(document.filePath, document.mimeType);
+            fullText = await extractText(document.filePath, document.mimeType);
         } catch (extractError) {
             throw new Error(`Text extraction failed: ${(extractError as Error).message}`);
         }
 
-        console.log(`[Worker] Extracted ${text.length} characters`);
+        console.log(`[Worker] Extracted ${fullText.length} characters`);
 
-        // 3. Run heuristics to extract metadata
-        const extracted = extractMetadataFromText(text);
+        // 3. Save fullText to DocumentContent
+        const textHash = hashText(fullText);
+        await prisma.documentContent.upsert({
+            where: { documentId },
+            create: {
+                documentId,
+                fullText,
+                textHash,
+            },
+            update: {
+                fullText,
+                textHash,
+            },
+        });
+        console.log(`[Worker] Saved fullText to DocumentContent`);
+
+        // 4. Run heuristics to extract metadata
+        const extracted = extractMetadataFromText(fullText);
         console.log(`[Worker] Extracted metadata with confidence: ${extracted.confidence}`);
 
-        // 4. Upsert metadata
+        // 5. Upsert metadata
         await prisma.documentMetadata.upsert({
             where: { documentId },
             create: {
@@ -72,11 +89,41 @@ async function processExtractMetadata(job: Job<ExtractMetadataJobData>): Promise
                 statusAturan: extracted.statusAturan,
                 confidence: extracted.confidence,
                 extractionNotes: extracted.extractionNotes as object,
-                // Don't update updatedByUser on re-extraction
             },
         });
 
-        // 5. Set status to needs_review
+        // 6. Delete existing chunks for idempotency
+        await prisma.regulationChunk.deleteMany({
+            where: { documentId },
+        });
+        console.log(`[Worker] Deleted old chunks`);
+
+        // 7. Parse and create chunks by Pasal
+        const chunks = chunkByPasal(fullText, {
+            jenis: extracted.jenis,
+            nomor: extracted.nomor,
+            tahun: extracted.tahun,
+        });
+        console.log(`[Worker] Parsed ${chunks.length} chunks`);
+
+        // 8. Bulk insert chunks
+        if (chunks.length > 0) {
+            await prisma.regulationChunk.createMany({
+                data: chunks.map((chunk) => ({
+                    documentId,
+                    anchorCitation: chunk.anchorCitation,
+                    pasal: chunk.pasal,
+                    ayat: chunk.ayat,
+                    huruf: chunk.huruf,
+                    orderIndex: chunk.orderIndex,
+                    text: chunk.text,
+                    tokenEstimate: chunk.tokenEstimate,
+                })),
+            });
+            console.log(`[Worker] Inserted ${chunks.length} chunks`);
+        }
+
+        // 9. Set status to needs_review
         await prisma.document.update({
             where: { id: documentId },
             data: { status: 'needs_review' },

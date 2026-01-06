@@ -30,6 +30,17 @@ interface Metadata {
     updatedByUser: boolean;
 }
 
+interface Chunk {
+    id: string;
+    pasal: string | null;
+    ayat: string | null;
+    huruf: string | null;
+    orderIndex: number;
+    anchorCitation: string;
+    text: string;
+    tokenEstimate: number | null;
+}
+
 const jenisOptions = ['UU', 'PP', 'PMK', 'PER', 'SE', 'KEP', 'UNKNOWN'];
 const statusAturanOptions = ['berlaku', 'diubah', 'dicabut', 'unknown'];
 
@@ -37,11 +48,15 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
     const router = useRouter();
     const [documentId, setDocumentId] = useState<string | null>(null);
     const [document, setDocument] = useState<Document | null>(null);
+    const [chunks, setChunks] = useState<Chunk[]>([]);
+    const [chunkCount, setChunkCount] = useState(0);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [rerunning, setRerunning] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
+    const [activeTab, setActiveTab] = useState<'metadata' | 'content'>('metadata');
+    const [expandedChunks, setExpandedChunks] = useState<Set<string>>(new Set());
 
     const [formData, setFormData] = useState({
         jenis: 'UNKNOWN',
@@ -60,9 +75,11 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
     useEffect(() => {
         if (!documentId) return;
         fetchDocument();
+        fetchChunks();
         const interval = setInterval(() => {
             if (document?.status === 'processing' || document?.status === 'uploaded') {
                 fetchDocument();
+                fetchChunks();
             }
         }, 2000);
         return () => clearInterval(interval);
@@ -97,6 +114,20 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
             setError((err as Error).message);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchChunks = async () => {
+        if (!documentId) return;
+        try {
+            const response = await fetch(`/api/documents/${documentId}/chunks?limit=100`);
+            if (response.ok) {
+                const data = await response.json();
+                setChunks(data.chunks || []);
+                setChunkCount(data.pagination?.total || 0);
+            }
+        } catch (err) {
+            console.error('Failed to fetch chunks:', err);
         }
     };
 
@@ -161,6 +192,18 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
         }
     };
 
+    const toggleChunk = (id: string) => {
+        setExpandedChunks(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
+    };
+
     if (loading) {
         return (
             <div className="min-h-screen bg-black text-white flex items-center justify-center">
@@ -184,7 +227,7 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
         <div className="min-h-screen bg-black text-white">
             {/* Navigation */}
             <nav className="border-b border-neutral-800">
-                <div className="max-w-3xl mx-auto px-6 h-14 flex items-center justify-between">
+                <div className="max-w-4xl mx-auto px-6 h-14 flex items-center justify-between">
                     <span className="font-semibold tracking-tight">Tax KB</span>
                     <div className="flex gap-6 text-sm">
                         <Link href="/documents" className="text-neutral-400 hover:text-white transition-colors">
@@ -198,7 +241,7 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
             </nav>
 
             {/* Main Content */}
-            <main className="max-w-3xl mx-auto px-6 py-10">
+            <main className="max-w-4xl mx-auto px-6 py-10">
                 <Link href="/documents" className="text-neutral-500 hover:text-white text-sm mb-6 inline-block">
                     ← Back
                 </Link>
@@ -226,6 +269,7 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                                 {document.status === 'processing' && 'Processing...'}
                                 {document.status === 'uploaded' && 'Uploaded'}
                                 {document.status === 'failed' && 'Failed'}
+                                {chunkCount > 0 && ` • ${chunkCount} chunks`}
                             </p>
                         </div>
                         {document.metadata && (
@@ -254,118 +298,180 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                     )}
                 </div>
 
-                {/* Metadata Form */}
-                <div className="border border-neutral-800 rounded-lg p-6">
-                    <h2 className="text-lg font-semibold mb-6">Metadata</h2>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-neutral-500 text-sm mb-1">Type</label>
-                            <select
-                                value={formData.jenis}
-                                onChange={(e) => setFormData({ ...formData, jenis: e.target.value })}
-                                className="w-full bg-black border border-neutral-700 rounded px-3 py-2 text-white focus:outline-none focus:border-neutral-500"
-                            >
-                                {jenisOptions.map((opt) => (
-                                    <option key={opt} value={opt}>{opt}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div>
-                            <label className="block text-neutral-500 text-sm mb-1">Number</label>
-                            <input
-                                type="text"
-                                value={formData.nomor}
-                                onChange={(e) => setFormData({ ...formData, nomor: e.target.value })}
-                                placeholder="e.g., 36/PMK.03/2024"
-                                className="w-full bg-black border border-neutral-700 rounded px-3 py-2 text-white placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-neutral-500 text-sm mb-1">Year</label>
-                            <input
-                                type="number"
-                                value={formData.tahun}
-                                onChange={(e) => setFormData({ ...formData, tahun: e.target.value })}
-                                placeholder="2024"
-                                className="w-full bg-black border border-neutral-700 rounded px-3 py-2 text-white placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-neutral-500 text-sm mb-1">Regulation Status</label>
-                            <select
-                                value={formData.statusAturan}
-                                onChange={(e) => setFormData({ ...formData, statusAturan: e.target.value })}
-                                className="w-full bg-black border border-neutral-700 rounded px-3 py-2 text-white focus:outline-none focus:border-neutral-500"
-                            >
-                                {statusAturanOptions.map((opt) => (
-                                    <option key={opt} value={opt}>{opt}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div className="col-span-2">
-                            <label className="block text-neutral-500 text-sm mb-1">Title</label>
-                            <textarea
-                                value={formData.judul}
-                                onChange={(e) => setFormData({ ...formData, judul: e.target.value })}
-                                placeholder="Document title..."
-                                rows={2}
-                                className="w-full bg-black border border-neutral-700 rounded px-3 py-2 text-white placeholder-neutral-600 focus:outline-none focus:border-neutral-500 resize-none"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-neutral-500 text-sm mb-1">Issue Date</label>
-                            <input
-                                type="date"
-                                value={formData.tanggalTerbit}
-                                onChange={(e) => setFormData({ ...formData, tanggalTerbit: e.target.value })}
-                                className="w-full bg-black border border-neutral-700 rounded px-3 py-2 text-white focus:outline-none focus:border-neutral-500"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-neutral-500 text-sm mb-1">Effective Date</label>
-                            <input
-                                type="date"
-                                value={formData.tanggalBerlaku}
-                                onChange={(e) => setFormData({ ...formData, tanggalBerlaku: e.target.value })}
-                                className="w-full bg-black border border-neutral-700 rounded px-3 py-2 text-white focus:outline-none focus:border-neutral-500"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex gap-3 mt-8">
-                        <button
-                            onClick={() => handleSave(false)}
-                            disabled={saving || document.status === 'processing'}
-                            className="px-4 py-2 border border-neutral-700 rounded font-medium text-sm hover:border-neutral-500 transition-colors disabled:opacity-50"
-                        >
-                            {saving ? 'Saving...' : 'Save Draft'}
-                        </button>
-
-                        <button
-                            onClick={() => handleSave(true)}
-                            disabled={saving || document.status === 'processing' || document.status === 'approved'}
-                            className="px-4 py-2 bg-white text-black rounded font-medium text-sm hover:bg-neutral-200 transition-colors disabled:opacity-50"
-                        >
-                            {document.status === 'approved' ? 'Approved' : 'Approve'}
-                        </button>
-
-                        <button
-                            onClick={handleRerun}
-                            disabled={rerunning || document.status === 'processing'}
-                            className="px-4 py-2 border border-neutral-700 rounded font-medium text-sm hover:border-neutral-500 transition-colors disabled:opacity-50"
-                        >
-                            {rerunning ? 'Queuing...' : 'Re-extract'}
-                        </button>
-                    </div>
+                {/* Tabs */}
+                <div className="flex gap-4 mb-6 border-b border-neutral-800">
+                    <button
+                        onClick={() => setActiveTab('metadata')}
+                        className={`pb-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'metadata'
+                                ? 'border-white text-white'
+                                : 'border-transparent text-neutral-500 hover:text-white'
+                            }`}
+                    >
+                        Metadata
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('content')}
+                        className={`pb-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'content'
+                                ? 'border-white text-white'
+                                : 'border-transparent text-neutral-500 hover:text-white'
+                            }`}
+                    >
+                        Content ({chunkCount})
+                    </button>
                 </div>
+
+                {/* Metadata Tab */}
+                {activeTab === 'metadata' && (
+                    <div className="border border-neutral-800 rounded-lg p-6">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-neutral-500 text-sm mb-1">Type</label>
+                                <select
+                                    value={formData.jenis}
+                                    onChange={(e) => setFormData({ ...formData, jenis: e.target.value })}
+                                    className="w-full bg-black border border-neutral-700 rounded px-3 py-2 text-white focus:outline-none focus:border-neutral-500"
+                                >
+                                    {jenisOptions.map((opt) => (
+                                        <option key={opt} value={opt}>{opt}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-neutral-500 text-sm mb-1">Number</label>
+                                <input
+                                    type="text"
+                                    value={formData.nomor}
+                                    onChange={(e) => setFormData({ ...formData, nomor: e.target.value })}
+                                    placeholder="e.g., 36/PMK.03/2024"
+                                    className="w-full bg-black border border-neutral-700 rounded px-3 py-2 text-white placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-neutral-500 text-sm mb-1">Year</label>
+                                <input
+                                    type="number"
+                                    value={formData.tahun}
+                                    onChange={(e) => setFormData({ ...formData, tahun: e.target.value })}
+                                    placeholder="2024"
+                                    className="w-full bg-black border border-neutral-700 rounded px-3 py-2 text-white placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-neutral-500 text-sm mb-1">Regulation Status</label>
+                                <select
+                                    value={formData.statusAturan}
+                                    onChange={(e) => setFormData({ ...formData, statusAturan: e.target.value })}
+                                    className="w-full bg-black border border-neutral-700 rounded px-3 py-2 text-white focus:outline-none focus:border-neutral-500"
+                                >
+                                    {statusAturanOptions.map((opt) => (
+                                        <option key={opt} value={opt}>{opt}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="col-span-2">
+                                <label className="block text-neutral-500 text-sm mb-1">Title</label>
+                                <textarea
+                                    value={formData.judul}
+                                    onChange={(e) => setFormData({ ...formData, judul: e.target.value })}
+                                    placeholder="Document title..."
+                                    rows={2}
+                                    className="w-full bg-black border border-neutral-700 rounded px-3 py-2 text-white placeholder-neutral-600 focus:outline-none focus:border-neutral-500 resize-none"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-neutral-500 text-sm mb-1">Issue Date</label>
+                                <input
+                                    type="date"
+                                    value={formData.tanggalTerbit}
+                                    onChange={(e) => setFormData({ ...formData, tanggalTerbit: e.target.value })}
+                                    className="w-full bg-black border border-neutral-700 rounded px-3 py-2 text-white focus:outline-none focus:border-neutral-500"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-neutral-500 text-sm mb-1">Effective Date</label>
+                                <input
+                                    type="date"
+                                    value={formData.tanggalBerlaku}
+                                    onChange={(e) => setFormData({ ...formData, tanggalBerlaku: e.target.value })}
+                                    className="w-full bg-black border border-neutral-700 rounded px-3 py-2 text-white focus:outline-none focus:border-neutral-500"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex gap-3 mt-8">
+                            <button
+                                onClick={() => handleSave(false)}
+                                disabled={saving || document.status === 'processing'}
+                                className="px-4 py-2 border border-neutral-700 rounded font-medium text-sm hover:border-neutral-500 transition-colors disabled:opacity-50"
+                            >
+                                {saving ? 'Saving...' : 'Save Draft'}
+                            </button>
+
+                            <button
+                                onClick={() => handleSave(true)}
+                                disabled={saving || document.status === 'processing' || document.status === 'approved'}
+                                className="px-4 py-2 bg-white text-black rounded font-medium text-sm hover:bg-neutral-200 transition-colors disabled:opacity-50"
+                            >
+                                {document.status === 'approved' ? 'Approved' : 'Approve'}
+                            </button>
+
+                            <button
+                                onClick={handleRerun}
+                                disabled={rerunning || document.status === 'processing'}
+                                className="px-4 py-2 border border-neutral-700 rounded font-medium text-sm hover:border-neutral-500 transition-colors disabled:opacity-50"
+                            >
+                                {rerunning ? 'Queuing...' : 'Re-extract'}
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Content Tab */}
+                {activeTab === 'content' && (
+                    <div className="border border-neutral-800 rounded-lg">
+                        {chunks.length === 0 ? (
+                            <div className="p-8 text-center text-neutral-500">
+                                No content chunks extracted yet.
+                                {document.status === 'processing' && ' Processing...'}
+                            </div>
+                        ) : (
+                            <div className="divide-y divide-neutral-800">
+                                {chunks.map((chunk) => (
+                                    <div key={chunk.id} className="p-4">
+                                        <button
+                                            onClick={() => toggleChunk(chunk.id)}
+                                            className="w-full flex justify-between items-center text-left"
+                                        >
+                                            <div>
+                                                <span className="font-medium">
+                                                    {chunk.pasal ? `Pasal ${chunk.pasal}` : chunk.anchorCitation}
+                                                </span>
+                                                <span className="text-neutral-500 text-sm ml-3">
+                                                    ~{chunk.tokenEstimate} tokens
+                                                </span>
+                                            </div>
+                                            <span className="text-neutral-500">
+                                                {expandedChunks.has(chunk.id) ? '−' : '+'}
+                                            </span>
+                                        </button>
+                                        {expandedChunks.has(chunk.id) && (
+                                            <div className="mt-3 p-3 bg-neutral-900 rounded text-sm text-neutral-300 whitespace-pre-wrap">
+                                                {chunk.text}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
             </main>
         </div>
     );
