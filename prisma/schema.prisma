@@ -1,0 +1,64 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum DocumentStatus {
+  uploaded
+  processing
+  needs_review
+  approved
+  failed
+}
+
+enum RegulationType {
+  UU
+  PP
+  PMK
+  PER
+  SE
+  KEP
+  UNKNOWN
+}
+
+enum RegulationStatus {
+  berlaku
+  diubah
+  dicabut
+  unknown
+}
+
+model Document {
+  id           String         @id @default(uuid())
+  fileName     String
+  originalName String
+  mimeType     String
+  filePath     String
+  sha256       String         @unique
+  status       DocumentStatus @default(uploaded)
+  lastError    String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  metadata     DocumentMetadata?
+}
+
+model DocumentMetadata {
+  id              String           @id @default(uuid())
+  documentId      String           @unique
+  document        Document         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  jenis           RegulationType   @default(UNKNOWN)
+  nomor           String?
+  tahun           Int?
+  judul           String?
+  tanggalTerbit   DateTime?
+  tanggalBerlaku  DateTime?
+  statusAturan    RegulationStatus @default(unknown)
+  confidence      Float            @default(0)
+  extractionNotes Json?
+  updatedByUser   Boolean          @default(false)
+  updatedAt       DateTime         @updatedAt
+}
