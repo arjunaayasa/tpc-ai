@@ -28,18 +28,10 @@ async function getDocuments(status?: DocumentStatus): Promise<DocumentWithMetada
     }) as unknown as DocumentWithMetadata[];
 }
 
-const statusColors: Record<DocumentStatus, string> = {
-    uploaded: 'bg-slate-500/20 text-slate-300 border-slate-500/30',
-    processing: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-    needs_review: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
-    approved: 'bg-green-500/20 text-green-300 border-green-500/30',
-    failed: 'bg-red-500/20 text-red-300 border-red-500/30',
-};
-
 const statusLabels: Record<DocumentStatus, string> = {
     uploaded: 'Uploaded',
     processing: 'Processing',
-    needs_review: 'Needs Review',
+    needs_review: 'Review',
     approved: 'Approved',
     failed: 'Failed',
 };
@@ -54,57 +46,44 @@ export default async function DocumentsPage({
     const documents = await getDocuments(statusFilter);
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-            <nav className="border-b border-slate-700/50 backdrop-blur-sm bg-slate-900/50 sticky top-0 z-10">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex justify-between h-16 items-center">
-                        <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
-                            Tax KB Ingestion
-                        </h1>
-                        <div className="flex gap-4">
-                            <Link
-                                href="/documents"
-                                className="text-blue-400 hover:text-blue-300 transition-colors font-medium"
-                            >
-                                Documents
-                            </Link>
-                            <Link
-                                href="/upload"
-                                className="text-slate-300 hover:text-white transition-colors"
-                            >
-                                Upload
-                            </Link>
-                        </div>
+        <div className="min-h-screen bg-black text-white">
+            {/* Navigation */}
+            <nav className="border-b border-neutral-800">
+                <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
+                    <span className="font-semibold tracking-tight">Tax KB</span>
+                    <div className="flex gap-6 text-sm">
+                        <Link href="/documents" className="text-white">
+                            Documents
+                        </Link>
+                        <Link href="/upload" className="text-neutral-400 hover:text-white transition-colors">
+                            Upload
+                        </Link>
                     </div>
                 </div>
             </nav>
 
-            <main className="max-w-7xl mx-auto px-4 py-8">
+            {/* Main Content */}
+            <main className="max-w-5xl mx-auto px-6 py-10">
                 <div className="flex justify-between items-center mb-8">
                     <div>
-                        <h2 className="text-3xl font-bold text-white mb-2">Documents</h2>
-                        <p className="text-slate-400">
-                            {documents.length} document{documents.length !== 1 ? 's' : ''} found
+                        <h1 className="text-2xl font-semibold">Documents</h1>
+                        <p className="text-neutral-500 text-sm mt-1">
+                            {documents.length} document{documents.length !== 1 ? 's' : ''}
                         </p>
                     </div>
                     <Link
                         href="/upload"
-                        className="px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-xl font-semibold transition-all shadow-lg shadow-blue-500/25 flex items-center gap-2"
+                        className="px-4 py-2 bg-white text-black rounded font-medium text-sm hover:bg-neutral-200 transition-colors"
                     >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                        </svg>
-                        Upload New
+                        Upload
                     </Link>
                 </div>
 
-                {/* Status Filter */}
-                <div className="flex gap-2 mb-6 flex-wrap">
+                {/* Filters */}
+                <div className="flex gap-2 mb-6 text-sm">
                     <Link
                         href="/documents"
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${!statusFilter
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        className={`px-3 py-1.5 rounded transition-colors ${!statusFilter ? 'bg-white text-black' : 'text-neutral-400 hover:text-white'
                             }`}
                     >
                         All
@@ -113,9 +92,7 @@ export default async function DocumentsPage({
                         <Link
                             key={status}
                             href={`/documents?status=${status}`}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${statusFilter === status
-                                ? 'bg-blue-500 text-white'
-                                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                            className={`px-3 py-1.5 rounded transition-colors ${statusFilter === status ? 'bg-white text-black' : 'text-neutral-400 hover:text-white'
                                 }`}
                         >
                             {label}
@@ -123,76 +100,71 @@ export default async function DocumentsPage({
                     ))}
                 </div>
 
-                {/* Documents Table */}
+                {/* Table */}
                 {documents.length === 0 ? (
-                    <div className="text-center py-16 bg-slate-800/50 rounded-2xl border border-slate-700/50">
-                        <div className="w-16 h-16 mx-auto bg-slate-700 rounded-full flex items-center justify-center mb-4">
-                            <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                        </div>
-                        <p className="text-slate-400 mb-4">No documents found</p>
-                        <Link
-                            href="/upload"
-                            className="text-blue-400 hover:text-blue-300 underline"
-                        >
+                    <div className="text-center py-16 text-neutral-500">
+                        <p>No documents found</p>
+                        <Link href="/upload" className="text-white underline mt-2 inline-block">
                             Upload your first document
                         </Link>
                     </div>
                 ) : (
-                    <div className="bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden">
-                        <div className="overflow-x-auto">
-                            <table className="w-full">
-                                <thead>
-                                    <tr className="border-b border-slate-700/50">
-                                        <th className="text-left py-4 px-6 text-slate-400 font-medium text-sm">File Name</th>
-                                        <th className="text-left py-4 px-6 text-slate-400 font-medium text-sm">Jenis</th>
-                                        <th className="text-left py-4 px-6 text-slate-400 font-medium text-sm">Nomor</th>
-                                        <th className="text-left py-4 px-6 text-slate-400 font-medium text-sm">Tahun</th>
-                                        <th className="text-left py-4 px-6 text-slate-400 font-medium text-sm">Status</th>
-                                        <th className="text-left py-4 px-6 text-slate-400 font-medium text-sm">Updated</th>
+                    <div className="border border-neutral-800 rounded-lg overflow-hidden">
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="border-b border-neutral-800 text-neutral-500">
+                                    <th className="text-left py-3 px-4 font-medium">File</th>
+                                    <th className="text-left py-3 px-4 font-medium">Type</th>
+                                    <th className="text-left py-3 px-4 font-medium">Number</th>
+                                    <th className="text-left py-3 px-4 font-medium">Year</th>
+                                    <th className="text-left py-3 px-4 font-medium">Status</th>
+                                    <th className="text-left py-3 px-4 font-medium">Updated</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {documents.map((doc) => (
+                                    <tr
+                                        key={doc.id}
+                                        className="border-b border-neutral-800 last:border-0 hover:bg-neutral-900 transition-colors"
+                                    >
+                                        <td className="py-3 px-4">
+                                            <Link
+                                                href={`/documents/${doc.id}`}
+                                                className="hover:underline"
+                                            >
+                                                {doc.originalName}
+                                            </Link>
+                                        </td>
+                                        <td className="py-3 px-4 text-neutral-400">
+                                            {doc.metadata?.jenis || '-'}
+                                        </td>
+                                        <td className="py-3 px-4 text-neutral-400">
+                                            {doc.metadata?.nomor || '-'}
+                                        </td>
+                                        <td className="py-3 px-4 text-neutral-400">
+                                            {doc.metadata?.tahun || '-'}
+                                        </td>
+                                        <td className="py-3 px-4">
+                                            <span className={`
+                        ${doc.status === 'approved' ? 'text-white' : ''}
+                        ${doc.status === 'failed' ? 'text-red-400' : ''}
+                        ${doc.status === 'processing' ? 'text-neutral-400' : ''}
+                        ${doc.status === 'needs_review' ? 'text-yellow-400' : ''}
+                        ${doc.status === 'uploaded' ? 'text-neutral-500' : ''}
+                      `}>
+                                                {statusLabels[doc.status]}
+                                            </span>
+                                        </td>
+                                        <td className="py-3 px-4 text-neutral-500">
+                                            {new Date(doc.updatedAt).toLocaleDateString('en-US', {
+                                                day: 'numeric',
+                                                month: 'short',
+                                            })}
+                                        </td>
                                     </tr>
-                                </thead>
-                                <tbody>
-                                    {documents.map((doc) => (
-                                        <tr
-                                            key={doc.id}
-                                            className="border-b border-slate-700/30 hover:bg-slate-700/30 transition-colors"
-                                        >
-                                            <td className="py-4 px-6">
-                                                <Link
-                                                    href={`/documents/${doc.id}`}
-                                                    className="text-white hover:text-blue-400 transition-colors font-medium"
-                                                >
-                                                    {doc.originalName}
-                                                </Link>
-                                            </td>
-                                            <td className="py-4 px-6 text-slate-300">
-                                                {doc.metadata?.jenis || '-'}
-                                            </td>
-                                            <td className="py-4 px-6 text-slate-300">
-                                                {doc.metadata?.nomor || '-'}
-                                            </td>
-                                            <td className="py-4 px-6 text-slate-300">
-                                                {doc.metadata?.tahun || '-'}
-                                            </td>
-                                            <td className="py-4 px-6">
-                                                <span className={`px-3 py-1 rounded-full text-xs font-medium border ${statusColors[doc.status]}`}>
-                                                    {statusLabels[doc.status]}
-                                                </span>
-                                            </td>
-                                            <td className="py-4 px-6 text-slate-400 text-sm">
-                                                {new Date(doc.updatedAt).toLocaleDateString('id-ID', {
-                                                    day: 'numeric',
-                                                    month: 'short',
-                                                    year: 'numeric',
-                                                })}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
                 )}
             </main>
