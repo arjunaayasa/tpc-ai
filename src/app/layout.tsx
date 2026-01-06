@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Tax KB Ingestion - Document Management",
+  title: "TPC Ingestion - Document Management",
   description: "Indonesian tax regulation document ingestion and metadata extraction system",
 };
 

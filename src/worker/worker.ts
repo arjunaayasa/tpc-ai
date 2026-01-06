@@ -105,6 +105,13 @@ async function processExtractMetadata(job: Job<ExtractMetadataJobData>): Promise
             tahun: extracted.tahun,
         });
         console.log(`[Worker] Parsed ${chunks.length} chunks`);
+        
+        // Debug: log chunk details
+        chunks.forEach((chunk, idx) => {
+            console.log(`[Worker] Chunk ${idx}: Pasal ${chunk.pasal || 'Pembukaan'}, ${chunk.text.length} chars, ${chunk.tokenEstimate} tokens`);
+            // Log first 100 chars of each chunk for debugging
+            console.log(`[Worker] Chunk ${idx} preview: ${chunk.text.substring(0, 100).replace(/\n/g, ' ')}...`);
+        });
 
         // 8. Bulk insert chunks
         if (chunks.length > 0) {

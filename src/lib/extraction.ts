@@ -1,8 +1,8 @@
 import * as fs from 'fs/promises';
 import path from 'path';
 
-// Maximum characters to extract for performance
-const MAX_CHARS = 10000;
+// Maximum characters to extract - increased for full document chunking
+const MAX_CHARS = 500000;
 
 /**
  * Extract text from a PDF file
@@ -13,9 +13,7 @@ export async function extractPdfText(filePath: string): Promise<string> {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const pdfParse = require('pdf-parse');
         const buffer = await fs.readFile(filePath);
-        const data = await pdfParse(buffer, {
-            max: 2, // Only first 2 pages
-        });
+        const data = await pdfParse(buffer);
         return data.text.substring(0, MAX_CHARS);
     } catch (error) {
         console.error('PDF extraction error:', error);

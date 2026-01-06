@@ -50,7 +50,7 @@ export default async function DocumentsPage({
             {/* Navigation */}
             <nav className="border-b border-neutral-800">
                 <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
-                    <span className="font-semibold tracking-tight">Tax KB</span>
+                    <span className="font-semibold tracking-tight">TPC Ingestion</span>
                     <div className="flex gap-6 text-sm">
                         <Link href="/documents" className="text-white">
                             Documents

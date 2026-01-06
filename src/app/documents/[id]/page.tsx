@@ -41,6 +41,13 @@ interface Chunk {
     tokenEstimate: number | null;
 }
 
+interface GroupedChunk {
+    pasal: string | null;
+    anchorCitation: string;
+    totalTokens: number;
+    items: Chunk[];
+}
+
 const jenisOptions = ['UU', 'PP', 'PMK', 'PER', 'SE', 'KEP', 'UNKNOWN'];
 const statusAturanOptions = ['berlaku', 'diubah', 'dicabut', 'unknown'];
 
@@ -56,7 +63,8 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'metadata' | 'content'>('metadata');
-    const [expandedChunks, setExpandedChunks] = useState<Set<string>>(new Set());
+    const [expandedPasals, setExpandedPasals] = useState<Set<string>>(new Set());
+    const [expandedAyats, setExpandedAyats] = useState<Set<string>>(new Set());
 
     const [formData, setFormData] = useState({
         jenis: 'UNKNOWN',
@@ -120,7 +128,7 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
     const fetchChunks = async () => {
         if (!documentId) return;
         try {
-            const response = await fetch(`/api/documents/${documentId}/chunks?limit=100`);
+            const response = await fetch(`/api/documents/${documentId}/chunks?limit=500`);
             if (response.ok) {
                 const data = await response.json();
                 setChunks(data.chunks || []);
@@ -193,7 +201,7 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
     };
 
     const toggleChunk = (id: string) => {
-        setExpandedChunks(prev => {
+        setExpandedPasals(prev => {
             const next = new Set(prev);
             if (next.has(id)) {
                 next.delete(id);
@@ -203,6 +211,38 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
             return next;
         });
     };
+
+    const toggleAyat = (id: string) => {
+        setExpandedAyats(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
+    };
+
+    // Group chunks by Pasal
+    const groupedChunks: GroupedChunk[] = chunks.reduce((acc, chunk) => {
+        // Use pasal as key, null pasal uses anchorCitation as key
+        const key = chunk.pasal ?? chunk.anchorCitation;
+        
+        let group = acc.find(g => (g.pasal ?? g.anchorCitation) === key);
+        if (!group) {
+            group = {
+                pasal: chunk.pasal,
+                anchorCitation: chunk.anchorCitation,
+                totalTokens: 0,
+                items: [],
+            };
+            acc.push(group);
+        }
+        group.items.push(chunk);
+        group.totalTokens += chunk.tokenEstimate ?? 0;
+        return acc;
+    }, [] as GroupedChunk[]);
 
     if (loading) {
         return (
@@ -228,7 +268,7 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
             {/* Navigation */}
             <nav className="border-b border-neutral-800">
                 <div className="max-w-4xl mx-auto px-6 h-14 flex items-center justify-between">
-                    <span className="font-semibold tracking-tight">Tax KB</span>
+                    <span className="font-semibold tracking-tight">TPC Ingestion</span>
                     <div className="flex gap-6 text-sm">
                         <Link href="/documents" className="text-neutral-400 hover:text-white transition-colors">
                             Documents
@@ -443,31 +483,84 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                             </div>
                         ) : (
                             <div className="divide-y divide-neutral-800">
-                                {chunks.map((chunk) => (
-                                    <div key={chunk.id} className="p-4">
-                                        <button
-                                            onClick={() => toggleChunk(chunk.id)}
-                                            className="w-full flex justify-between items-center text-left"
-                                        >
-                                            <div>
-                                                <span className="font-medium">
-                                                    {chunk.pasal ? `Pasal ${chunk.pasal}` : chunk.anchorCitation}
+                                {groupedChunks.map((group) => {
+                                    const groupKey = group.pasal ?? group.anchorCitation;
+                                    const isExpanded = expandedPasals.has(groupKey);
+                                    const hasMultipleItems = group.items.length > 1;
+                                    
+                                    return (
+                                        <div key={groupKey} className="p-4">
+                                            {/* Pasal/Section Header */}
+                                            <button
+                                                onClick={() => toggleChunk(groupKey)}
+                                                className="w-full flex justify-between items-center text-left"
+                                            >
+                                                <div>
+                                                    <span className="font-medium">
+                                                        {group.pasal ? `Pasal ${group.pasal}` : group.anchorCitation}
+                                                    </span>
+                                                    <span className="text-neutral-500 text-sm ml-3">
+                                                        ~{group.totalTokens} tokens
+                                                        {hasMultipleItems && (
+                                                            <span className="ml-2 text-neutral-600">
+                                                                ({group.items.length} ayat)
+                                                            </span>
+                                                        )}
+                                                    </span>
+                                                </div>
+                                                <span className="text-neutral-500">
+                                                    {isExpanded ? '−' : '+'}
                                                 </span>
-                                                <span className="text-neutral-500 text-sm ml-3">
-                                                    ~{chunk.tokenEstimate} tokens
-                                                </span>
-                                            </div>
-                                            <span className="text-neutral-500">
-                                                {expandedChunks.has(chunk.id) ? '−' : '+'}
-                                            </span>
-                                        </button>
-                                        {expandedChunks.has(chunk.id) && (
-                                            <div className="mt-3 p-3 bg-neutral-900 rounded text-sm text-neutral-300 whitespace-pre-wrap">
-                                                {chunk.text}
-                                            </div>
-                                        )}
-                                    </div>
-                                ))}
+                                            </button>
+
+                                            {/* Expanded Content */}
+                                            {isExpanded && (
+                                                <div className="mt-3">
+                                                    {hasMultipleItems ? (
+                                                        // Multiple ayat - show as nested list
+                                                        <div className="space-y-2">
+                                                            {group.items.map((chunk) => {
+                                                                const ayatKey = chunk.id;
+                                                                const isAyatExpanded = expandedAyats.has(ayatKey);
+                                                                
+                                                                return (
+                                                                    <div key={chunk.id} className="border-l-2 border-neutral-700 pl-4">
+                                                                        <button
+                                                                            onClick={() => toggleAyat(ayatKey)}
+                                                                            className="w-full flex justify-between items-center text-left py-2"
+                                                                        >
+                                                                            <div>
+                                                                                <span className="text-neutral-300">
+                                                                                    {chunk.ayat ? `Ayat (${chunk.ayat})` : 'Isi'}
+                                                                                </span>
+                                                                                <span className="text-neutral-600 text-sm ml-2">
+                                                                                    ~{chunk.tokenEstimate} tokens
+                                                                                </span>
+                                                                            </div>
+                                                                            <span className="text-neutral-600 text-sm">
+                                                                                {isAyatExpanded ? '−' : '+'}
+                                                                            </span>
+                                                                        </button>
+                                                                        {isAyatExpanded && (
+                                                                            <div className="pb-3 pl-2 text-sm text-neutral-400 whitespace-pre-wrap">
+                                                                                {chunk.text}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    ) : (
+                                                        // Single chunk - show text directly
+                                                        <div className="p-3 bg-neutral-900 rounded text-sm text-neutral-300 whitespace-pre-wrap">
+                                                            {group.items[0]?.text}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
                             </div>
                         )}
                     </div>

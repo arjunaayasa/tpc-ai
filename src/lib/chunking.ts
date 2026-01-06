@@ -1,5 +1,5 @@
 /**
- * Chunking utility for splitting Indonesian tax regulation documents by Pasal
+ * Chunking utility for splitting Indonesian tax regulation documents by Pasal and Ayat
  */
 
 export interface ChunkData {
@@ -19,35 +19,168 @@ export interface DocumentMeta {
 }
 
 /**
- * Parse fullText into chunks by Pasal sections
+ * Parse ayat sections within a Pasal text
+ * Returns array of ayat chunks, or single chunk if no ayat found
+ */
+function parseAyatInPasal(
+    pasalText: string,
+    pasalNum: string,
+    meta?: DocumentMeta
+): { ayat: string | null; text: string }[] {
+    const ayatChunks: { ayat: string | null; text: string }[] = [];
+
+    // Regex to find "(1)", "(2)", "(4a)", etc. at START of line only
+    // This avoids matching references like "dimaksud pada ayat (1)" 
+    // Pattern: newline, optional whitespace, then (number) or (numberLetter)
+    const ayatRegex = /(?:^|\n)\s*\((\d+[a-z]?)\)\s+(?=[A-Z])/g;
+
+    // Find all Ayat positions
+    const ayatMatches: { index: number; ayat: string; matchLength: number }[] = [];
+    const seenAyats = new Set<string>();
+    let match: RegExpExecArray | null;
+
+    while ((match = ayatRegex.exec(pasalText)) !== null) {
+        const ayatNum = match[1];
+        // Only take first occurrence of each ayat number
+        if (!seenAyats.has(ayatNum)) {
+            seenAyats.add(ayatNum);
+            ayatMatches.push({
+                index: match.index,
+                ayat: ayatNum,
+                matchLength: match[0].length,
+            });
+        }
+    }
+
+    // If no ayat found or only 1, return the whole pasal as single chunk
+    if (ayatMatches.length <= 1) {
+        return [{ ayat: null, text: pasalText }];
+    }
+
+    // Check if first ayat is (1) - basic validation
+    const firstAyat = ayatMatches[0].ayat;
+    if (firstAyat !== '1') {
+        // Doesn't start with (1), might not be real ayat structure
+        return [{ ayat: null, text: pasalText }];
+    }
+
+    // Handle text before first Ayat (Pasal header)
+    const headerText = pasalText.substring(0, ayatMatches[0].index).trim();
+    
+    // Extract each Ayat section
+    for (let i = 0; i < ayatMatches.length; i++) {
+        const currentAyat = ayatMatches[i];
+        const nextAyat = ayatMatches[i + 1];
+
+        const startIndex = currentAyat.index;
+        const endIndex = nextAyat ? nextAyat.index : pasalText.length;
+
+        let ayatText = pasalText.substring(startIndex, endIndex).trim();
+
+        // For first ayat, prepend the header (Pasal X title)
+        if (i === 0 && headerText.length > 0) {
+            ayatText = headerText + '\n' + ayatText;
+        }
+
+        if (ayatText.length > 0) {
+            ayatChunks.push({
+                ayat: currentAyat.ayat,
+                text: ayatText,
+            });
+        }
+    }
+
+    return ayatChunks;
+}
+
+/**
+ * Parse fullText into chunks by Pasal sections, then by Ayat within each Pasal
  */
 export function chunkByPasal(fullText: string, meta?: DocumentMeta): ChunkData[] {
     const chunks: ChunkData[] = [];
 
-    // Regex to find "Pasal <number>" with optional whitespace variations
-    const pasalRegex = /\bPasal\s+(\d+)\b/gi;
+    // Normalize text: fix common PDF extraction issues
+    const normalizedText = fullText
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        // Fix "P a s a l" with spaces between letters
+        .replace(/P\s*a\s*s\s*a\s*l/gi, 'Pasal')
+        // Fix multiple spaces
+        .replace(/[ \t]+/g, ' ');
 
-    // Find all Pasal positions
-    const matches: { index: number; pasal: string }[] = [];
+    // Regex to find "Pasal <number>" that is a HEADER, not a reference
+    // Header Pasal characteristics:
+    // 1. At start of line (after newline)
+    // 2. NOT preceded by words like "dalam", "pada", "sebagaimana", "dimaksud", etc.
+    // 3. The line should be relatively short (just "Pasal X" or "Pasal X\n")
+    // We use negative lookbehind to exclude references
+    
+    // First pass: find all potential Pasal positions
+    // Support: Pasal 1, Pasal 13A, Pasal 14B, etc.
+    const potentialPasalRegex = /\n\s*Pasal\s+(\d+[A-Z]?)\b/gi;
+
+    // Find all Pasal positions - validate each one
+    const matches: { index: number; pasal: string; fullMatch: string }[] = [];
+    const seenPasals = new Set<string>();
     let match: RegExpExecArray | null;
 
-    while ((match = pasalRegex.exec(fullText)) !== null) {
-        matches.push({
-            index: match.index,
-            pasal: match[1],
-        });
+    while ((match = potentialPasalRegex.exec(normalizedText)) !== null) {
+        const pasalNum = match[1].toUpperCase(); // Normalize: 13a -> 13A
+        const matchIndex = match.index;
+        
+        // Check context before the match to see if it's a reference
+        // Look at the 50 characters before this match
+        const contextStart = Math.max(0, matchIndex - 50);
+        const contextBefore = normalizedText.substring(contextStart, matchIndex).toLowerCase();
+        
+        // Words that indicate this is a reference, not a header
+        const referenceIndicators = [
+            'dalam pasal',
+            'pada pasal', 
+            'sebagaimana dimaksud',
+            'dimaksud dalam',
+            'dimaksud pada',
+            'menurut pasal',
+            'berdasarkan pasal',
+            'sesuai pasal',
+            'ketentuan pasal',
+            'atau pasal',
+            'dan pasal',
+            'sampai dengan pasal',
+            'huruf'  // like "huruf a Pasal 28"
+        ];
+        
+        const isReference = referenceIndicators.some(indicator => 
+            contextBefore.includes(indicator)
+        );
+        
+        // Also check: a header Pasal should be followed by newline or ayat (1)
+        // Look at what follows
+        const afterMatch = normalizedText.substring(match.index + match[0].length, match.index + match[0].length + 30);
+        const looksLikeHeader = /^\s*(\n|\(1\)|$)/i.test(afterMatch);
+        
+        if (!isReference || looksLikeHeader) {
+            if (!seenPasals.has(pasalNum)) {
+                seenPasals.add(pasalNum);
+                matches.push({
+                    index: matchIndex,
+                    pasal: pasalNum,
+                    fullMatch: match[0],
+                });
+            }
+        }
     }
 
     if (matches.length === 0) {
         // No Pasal found - create single chunk with full text
-        const text = fullText.trim();
+        const text = normalizedText.trim();
         if (text.length > 0) {
             chunks.push({
                 pasal: null,
                 ayat: null,
                 huruf: null,
                 orderIndex: 0,
-                anchorCitation: generateCitation(meta, null),
+                anchorCitation: generateCitation(meta, null, null),
                 text,
                 tokenEstimate: estimateTokens(text),
             });
@@ -55,42 +188,50 @@ export function chunkByPasal(fullText: string, meta?: DocumentMeta): ChunkData[]
         return chunks;
     }
 
+    // Sort matches by position in text (index)
+    matches.sort((a, b) => a.index - b.index);
+
     // Handle text before first Pasal (preamble)
     if (matches[0].index > 0) {
-        const preamble = fullText.substring(0, matches[0].index).trim();
-        if (preamble.length > 50) { // Only include if substantial
+        const preamble = normalizedText.substring(0, matches[0].index).trim();
+        if (preamble.length > 50) {
             chunks.push({
                 pasal: null,
                 ayat: null,
                 huruf: null,
                 orderIndex: 0,
-                anchorCitation: generateCitation(meta, null, 'Pembukaan'),
+                anchorCitation: generateCitation(meta, null, null, 'Pembukaan'),
                 text: preamble,
                 tokenEstimate: estimateTokens(preamble),
             });
         }
     }
 
-    // Extract each Pasal section
+    // Extract each Pasal section, then split by Ayat
     for (let i = 0; i < matches.length; i++) {
         const currentMatch = matches[i];
         const nextMatch = matches[i + 1];
 
         const startIndex = currentMatch.index;
-        const endIndex = nextMatch ? nextMatch.index : fullText.length;
+        const endIndex = nextMatch ? nextMatch.index : normalizedText.length;
 
-        const sectionText = fullText.substring(startIndex, endIndex).trim();
+        const pasalText = normalizedText.substring(startIndex, endIndex).trim();
 
-        if (sectionText.length > 0) {
-            chunks.push({
-                pasal: currentMatch.pasal,
-                ayat: null, // Could be enhanced to parse ayat within pasal
-                huruf: null,
-                orderIndex: chunks.length,
-                anchorCitation: generateCitation(meta, currentMatch.pasal),
-                text: sectionText,
-                tokenEstimate: estimateTokens(sectionText),
-            });
+        if (pasalText.length > 0) {
+            // Parse ayat within this pasal
+            const ayatChunks = parseAyatInPasal(pasalText, currentMatch.pasal, meta);
+
+            for (const ayatChunk of ayatChunks) {
+                chunks.push({
+                    pasal: currentMatch.pasal,
+                    ayat: ayatChunk.ayat,
+                    huruf: null,
+                    orderIndex: chunks.length,
+                    anchorCitation: generateCitation(meta, currentMatch.pasal, ayatChunk.ayat),
+                    text: ayatChunk.text,
+                    tokenEstimate: estimateTokens(ayatChunk.text),
+                });
+            }
         }
     }
 
@@ -100,7 +241,12 @@ export function chunkByPasal(fullText: string, meta?: DocumentMeta): ChunkData[]
 /**
  * Generate anchor citation string
  */
-function generateCitation(meta?: DocumentMeta, pasal?: string | null, section?: string): string {
+function generateCitation(
+    meta?: DocumentMeta,
+    pasal?: string | null,
+    ayat?: string | null,
+    section?: string
+): string {
     const parts: string[] = [];
 
     if (meta?.jenis && meta.jenis !== 'UNKNOWN') {
@@ -116,11 +262,22 @@ function generateCitation(meta?: DocumentMeta, pasal?: string | null, section?: 
     if (section) {
         parts.push(section);
     } else if (pasal) {
-        parts.push(`Pasal ${pasal}`);
+        let citation = `Pasal ${pasal}`;
+        if (ayat) {
+            citation += ` ayat (${ayat})`;
+        }
+        parts.push(citation);
     }
 
     if (parts.length === 0) {
-        return pasal ? `Pasal ${pasal}` : 'Document';
+        if (pasal) {
+            let citation = `Pasal ${pasal}`;
+            if (ayat) {
+                citation += ` ayat (${ayat})`;
+            }
+            return citation;
+        }
+        return 'Document';
     }
 
     return parts.join(' ');
