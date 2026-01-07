@@ -370,8 +370,16 @@ export default function ChatPage() {
         } flex-shrink-0 bg-gray-950 border-r border-gray-800 transition-all duration-300 overflow-hidden`}
       >
         <div className="flex flex-col h-full w-64">
-          {/* Sidebar Header */}
+          {/* Sidebar Header with Logo */}
           <div className="p-3 border-b border-gray-800">
+            <div className="flex items-center gap-3 mb-3 px-1">
+              <img 
+                src="/logotpc.jpg" 
+                alt="TPC AI" 
+                className="w-8 h-8 rounded-full object-cover"
+              />
+              <span className="font-semibold text-white">TPC AI</span>
+            </div>
             <button
               onClick={createNewConversation}
               className="w-full px-4 py-2.5 text-sm text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg transition-colors font-medium"
@@ -452,26 +460,64 @@ export default function ChatPage() {
         <main className="flex-1 overflow-y-auto">
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center px-4">
-              <h2 className="text-3xl font-bold text-white mb-2">TPC AI</h2>
-              <p className="text-gray-400 text-center max-w-md mb-8">
-                Asisten AI untuk peraturan perpajakan Indonesia. Tanyakan apa saja tentang UU Pajak.
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl w-full">
+              {/* Logo centered like ChatGPT */}
+              <div className="mb-6">
+                <img 
+                  src="/logotpc.jpg" 
+                  alt="TPC AI" 
+                  className="w-16 h-16 rounded-full object-cover border-2 border-gray-700"
+                />
+              </div>
+              <h2 className="text-2xl font-medium text-white mb-8">Ada yang bisa dibantu hari ini?</h2>
+              
+              {/* Input centered like ChatGPT */}
+              <div className="w-full max-w-2xl mb-8">
+                <form onSubmit={handleSubmit}>
+                  <div className="relative flex items-center bg-gray-800 rounded-full border border-gray-700 focus-within:border-gray-600 transition-colors px-4">
+                    <span className="text-gray-500 mr-2">+</span>
+                    <input
+                      type="text"
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      placeholder="Tanyakan apa saja..."
+                      className="flex-1 bg-transparent text-white placeholder-gray-500 py-4 focus:outline-none"
+                      disabled={isLoading}
+                    />
+                    <button
+                      type="submit"
+                      disabled={!input.trim() || isLoading}
+                      className="ml-2 p-2 rounded-full bg-white text-gray-900 hover:bg-gray-200 disabled:opacity-30 disabled:hover:bg-white transition-colors"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Suggestion chips */}
+              <div className="flex flex-wrap justify-center gap-2 max-w-2xl">
                 {[
-                  'Apa tarif PPh untuk orang pribadi?',
-                  'Apa yang dimaksud Penghasilan Tidak Kena Pajak?',
-                  'Bagaimana cara menghitung penghasilan kena pajak?',
-                  'Apa saja yang tidak termasuk objek pajak?',
+                  'Tarif PPh orang pribadi',
+                  'Penghasilan Tidak Kena Pajak',
+                  'Objek pajak penghasilan',
+                  'Cara hitung PKP',
                 ].map((suggestion) => (
                   <button
                     key={suggestion}
                     onClick={() => setInput(suggestion)}
-                    className="p-4 text-left text-sm text-gray-300 bg-gray-800 hover:bg-gray-700 rounded-xl border border-gray-700 transition-colors"
+                    className="px-4 py-2 text-sm text-gray-300 bg-gray-800/50 hover:bg-gray-800 rounded-full border border-gray-700 hover:border-gray-600 transition-colors"
                   >
                     {suggestion}
                   </button>
                 ))}
               </div>
+              
+              {/* Disclaimer */}
+              <p className="mt-8 text-xs text-gray-500 text-center">
+                TPC AI dapat membuat kesalahan. Periksa informasi penting dengan sumber resmi.
+              </p>
             </div>
           ) : (
             <div className="max-w-3xl mx-auto py-6 px-4">
@@ -629,7 +675,8 @@ export default function ChatPage() {
           )}
         </main>
 
-        {/* Input Area */}
+        {/* Input Area - only show when there are messages */}
+        {messages.length > 0 && (
         <footer className="border-t border-gray-800 bg-gray-900 p-4">
           <form onSubmit={handleSubmit} className="max-w-3xl mx-auto">
             <div className="relative flex items-end bg-gray-800 rounded-xl border border-gray-700 focus-within:border-emerald-500 transition-colors">
@@ -674,11 +721,12 @@ export default function ChatPage() {
                 <span>Thinking Mode</span>
               </button>
               <p className="text-xs text-gray-600">
-                TPC AI menjawab berdasarkan dokumen perpajakan.
+                TPC AI dapat membuat kesalahan. Periksa informasi penting.
               </p>
             </div>
           </form>
         </footer>
+        )}
       </div>
     </div>
   );
