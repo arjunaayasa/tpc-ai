@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TPC Ingestion - Document Management",
-  description: "Indonesian tax regulation document ingestion and metadata extraction system",
+  title: "TPC AI - Tax Assistant",
+  description: "AI Assistant untuk peraturan perpajakan Indonesia",
 };
 
 export default function RootLayout({

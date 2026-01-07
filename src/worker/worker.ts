@@ -4,6 +4,7 @@ import { extractText } from '../lib/extraction';
 import { extractMetadataFromText } from '../lib/heuristics';
 import { chunkByPasal, hashText } from '../lib/chunking';
 import { redisUrl } from '../lib/queue';
+import { embedTexts, hashText as embedHashText, EMBEDDING_MODEL } from '../lib/embeddings';
 
 const prisma = new PrismaClient();
 
@@ -18,6 +19,99 @@ function parseRedisUrl(url: string): { host: string; port: number } {
 
 interface ExtractMetadataJobData {
     documentId: string;
+}
+
+/**
+ * Generate embeddings for all chunks of a document
+ * Only generates embeddings for chunks that are new or have changed text
+ */
+async function generateChunkEmbeddings(documentId: string): Promise<void> {
+    // Get all chunks for this document
+    const chunks = await prisma.regulationChunk.findMany({
+        where: { documentId },
+        select: {
+            id: true,
+            text: true,
+            embedding: {
+                select: {
+                    id: true,
+                    textHash: true,
+                },
+            },
+        },
+    });
+
+    if (chunks.length === 0) {
+        console.log(`[Worker] No chunks to embed for document ${documentId}`);
+        return;
+    }
+
+    // Find chunks that need embedding (new or changed text)
+    const chunksToEmbed: { id: string; text: string; textHash: string }[] = [];
+    
+    for (const chunk of chunks) {
+        const currentTextHash = embedHashText(chunk.text);
+        const existingEmbedding = chunk.embedding;
+        
+        if (!existingEmbedding || existingEmbedding.textHash !== currentTextHash) {
+            chunksToEmbed.push({
+                id: chunk.id,
+                text: chunk.text,
+                textHash: currentTextHash,
+            });
+        }
+    }
+
+    if (chunksToEmbed.length === 0) {
+        console.log(`[Worker] All chunks already have up-to-date embeddings`);
+        return;
+    }
+
+    console.log(`[Worker] Generating embeddings for ${chunksToEmbed.length} chunks...`);
+
+    // Generate embeddings in batches
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < chunksToEmbed.length; i += BATCH_SIZE) {
+        const batch = chunksToEmbed.slice(i, i + BATCH_SIZE);
+        const texts = batch.map(c => c.text);
+        
+        console.log(`[Worker] Embedding batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(chunksToEmbed.length / BATCH_SIZE)}`);
+        
+        const embeddings = await embedTexts(texts);
+        
+        // Upsert embeddings one by one using raw SQL for vector type
+        for (let j = 0; j < batch.length; j++) {
+            const chunk = batch[j];
+            const embedding = embeddings[j];
+            const vectorString = `[${embedding.join(',')}]`;
+            
+            // Check if embedding exists
+            const existing = await prisma.chunkEmbedding.findUnique({
+                where: { chunkId: chunk.id },
+            });
+            
+            if (existing) {
+                // Update existing embedding
+                await prisma.$executeRaw`
+                    UPDATE "ChunkEmbedding" 
+                    SET embedding = ${vectorString}::vector,
+                        "textHash" = ${chunk.textHash},
+                        "modelName" = ${EMBEDDING_MODEL},
+                        "updatedAt" = NOW()
+                    WHERE "chunkId" = ${chunk.id}
+                `;
+            } else {
+                // Insert new embedding
+                const id = crypto.randomUUID();
+                await prisma.$executeRaw`
+                    INSERT INTO "ChunkEmbedding" (id, "chunkId", "modelName", embedding, "textHash", "createdAt", "updatedAt")
+                    VALUES (${id}, ${chunk.id}, ${EMBEDDING_MODEL}, ${vectorString}::vector, ${chunk.textHash}, NOW(), NOW())
+                `;
+            }
+        }
+    }
+
+    console.log(`[Worker] Completed embedding generation for ${chunksToEmbed.length} chunks`);
 }
 
 async function processExtractMetadata(job: Job<ExtractMetadataJobData>): Promise<void> {
@@ -130,10 +224,24 @@ async function processExtractMetadata(job: Job<ExtractMetadataJobData>): Promise
             console.log(`[Worker] Inserted ${chunks.length} chunks`);
         }
 
-        // 9. Set status to needs_review
+        // 9. Generate embeddings for chunks
+        let embeddingWarning: string | null = null;
+        try {
+            await generateChunkEmbeddings(documentId);
+            console.log(`[Worker] Generated embeddings for document ${documentId}`);
+        } catch (embeddingError) {
+            // Don't fail the whole process, just log warning
+            embeddingWarning = `Embedding generation failed: ${(embeddingError as Error).message}`;
+            console.warn(`[Worker] ${embeddingWarning}`);
+        }
+
+        // 10. Set status to needs_review
         await prisma.document.update({
             where: { id: documentId },
-            data: { status: 'needs_review' },
+            data: { 
+                status: 'needs_review',
+                lastError: embeddingWarning,
+            },
         });
 
         console.log(`[Worker] Document ${documentId} processed successfully`);

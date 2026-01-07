@@ -1,16 +1,20 @@
 # Tax KB Ingestion MVP
 
-Sistem ingestion dokumen regulasi pajak Indonesia dengan ekstraksi metadata otomatis.
+Sistem ingestion dokumen regulasi pajak Indonesia dengan ekstraksi metadata otomatis dan **RAG (Retrieval-Augmented Generation)** untuk menjawab pertanyaan dengan sitasi pasal.
 
 ![Next.js](https://img.shields.io/badge/Next.js-16-black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-blue)
 ![Redis](https://img.shields.io/badge/Redis-7-red)
+![pgvector](https://img.shields.io/badge/pgvector-0.7+-green)
 
 ## ✨ Fitur
 
 - **Upload Dokumen** - Drag-and-drop PDF, HTML, TXT dengan validasi
 - **Ekstraksi Metadata Otomatis** - Regex heuristics untuk regulasi pajak Indonesia
+- **Chunking per Pasal/Ayat** - Memecah dokumen menjadi chunks yang dapat dicari
+- **Vector Embeddings** - Embedding otomatis menggunakan TEI atau Ollama
+- **RAG dengan Sitasi** - Tanya jawab dengan referensi pasal yang akurat
 - **Review Workflow** - Save draft, approve, atau re-run extraction
 - **Status Tracking** - uploaded → processing → needs_review → approved/failed
 
@@ -18,8 +22,10 @@ Sistem ingestion dokumen regulasi pajak Indonesia dengan ekstraksi metadata otom
 
 - **Frontend**: Next.js 14+ (App Router), TypeScript, Tailwind CSS
 - **Backend**: Next.js API Routes (Node runtime)
-- **Database**: PostgreSQL + Prisma ORM
+- **Database**: PostgreSQL + Prisma ORM + **pgvector**
 - **Queue**: Redis + BullMQ
+- **Embeddings**: TEI (Text Embeddings Inference) atau Ollama
+- **LLM**: Ollama (qwen2.5:7b-instruct atau model lain)
 - **File Storage**: Local filesystem (`/uploads`)
 
 ---
@@ -61,6 +67,24 @@ REDIS_URL="redis://localhost:6379"
 
 # Upload directory
 UPLOAD_DIR="./uploads"
+
+# ============== RAG Configuration ==============
+
+# Embedding Provider: 'tei' atau 'ollama'
+EMBEDDING_PROVIDER="ollama"
+
+# TEI (Text Embeddings Inference) settings
+# EMBEDDING_BASE_URL="http://localhost:8080"
+# EMBEDDING_MODEL="BAAI/bge-base-en-v1.5"
+
+# Ollama Embeddings settings
+EMBEDDING_BASE_URL="http://localhost:11434"
+EMBEDDING_MODEL="nomic-embed-text"
+EMBEDDING_DIM="1024"
+
+# Ollama LLM for RAG
+OLLAMA_BASE_URL="http://localhost:11434"
+OLLAMA_MODEL="qwen2.5:7b-instruct"
 ```
 
 ### 3. Setup Database
@@ -144,6 +168,99 @@ npm run worker
 
 ---
 
+## 🤖 RAG Setup (Retrieval-Augmented Generation)
+
+Untuk menggunakan fitur tanya-jawab dengan sitasi pasal, Anda perlu menjalankan:
+
+### 1. Install pgvector Extension
+
+pgvector diperlukan untuk vector similarity search. Pastikan PostgreSQL Anda mendukung pgvector:
+
+```bash
+# Jika menggunakan Docker, pgvector sudah terinstall
+# Jika install manual di Ubuntu/Debian:
+sudo apt install postgresql-15-pgvector
+
+# Run migration untuk enable extension
+npx prisma migrate deploy
+```
+
+### 2. Setup Embedding Provider
+
+#### Option A: Ollama Embeddings (Recommended - Easy Setup)
+
+```bash
+# Install Ollama (https://ollama.ai)
+# Windows: Download installer dari ollama.ai
+# macOS: brew install ollama
+# Linux: curl -fsSL https://ollama.ai/install.sh | sh
+
+# Start Ollama
+ollama serve
+
+# Pull embedding model (768 dimensions, fast)
+ollama pull nomic-embed-text
+
+# Atau model lain:
+# ollama pull mxbai-embed-large  # 1024 dimensions
+# ollama pull all-minilm         # 384 dimensions, very fast
+```
+
+#### Option B: TEI (Text Embeddings Inference - Production)
+
+```bash
+# Run TEI dengan Docker
+docker run -d --gpus all -p 8080:80 \
+  ghcr.io/huggingface/text-embeddings-inference:latest \
+  --model-id BAAI/bge-base-en-v1.5
+
+# Update .env
+EMBEDDING_PROVIDER="tei"
+EMBEDDING_BASE_URL="http://localhost:8080"
+```
+
+### 3. Setup LLM untuk Generation
+
+```bash
+# Pull model LLM (dengan Ollama)
+ollama pull qwen2.5:7b-instruct
+
+# Atau model lain yang recommended:
+# ollama pull llama3.1:8b-instruct
+# ollama pull mistral:7b-instruct
+```
+
+### 4. Generate Embeddings
+
+Embeddings akan otomatis di-generate saat dokumen di-process oleh worker. Untuk dokumen yang sudah ada:
+
+```bash
+# Re-run extraction untuk generate embeddings
+# Buka /documents/{id} dan click "Re-extract"
+```
+
+### 5. Test RAG Endpoint
+
+```bash
+# Check health
+curl http://localhost:3000/api/rag/ask
+
+# Ask a question
+curl -X POST http://localhost:3000/api/rag/ask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "Apa syarat untuk menjadi Pengusaha Kena Pajak?",
+    "topK": 10,
+    "mode": "strict"
+  }'
+```
+
+### 6. Gunakan UI
+
+Buka **http://localhost:3000/rag** untuk antarmuka tanya-jawab.
+
+---
+
 ## 📁 Project Structure
 
 ```
@@ -181,6 +298,51 @@ metadata-gen/
 | `GET` | `/api/documents/[id]` | Get document with metadata |
 | `PATCH` | `/api/documents/[id]/metadata` | Update metadata |
 | `POST` | `/api/documents/[id]/rerun` | Re-run extraction |
+| `GET` | `/api/documents/[id]/chunks` | Get document chunks |
+| `GET` | `/api/rag/ask` | Check RAG service health |
+| `POST` | `/api/rag/ask` | Ask question with RAG |
+
+### RAG Ask Example
+
+```bash
+curl -X POST http://localhost:3000/api/rag/ask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "Bagaimana cara pendaftaran NPWP?",
+    "topK": 12,
+    "filters": {
+      "jenis": "UU",
+      "tahun": 2007
+    },
+    "mode": "strict"
+  }'
+```
+
+**Response:**
+```json
+{
+  "answer": "**Kesimpulan**: Setiap Wajib Pajak yang telah memenuhi...",
+  "citations": [
+    {
+      "label": "C1",
+      "chunkId": "uuid",
+      "anchorCitation": "UU 28 Pasal 2 ayat (1)",
+      "documentId": "uuid",
+      "jenis": "UU",
+      "nomor": "28",
+      "tahun": 2007
+    }
+  ],
+  "chunksUsed": [...],
+  "metadata": {
+    "question": "...",
+    "topK": 12,
+    "mode": "strict",
+    "chunksRetrieved": 12,
+    "processingTimeMs": 3500
+  }
+}
+```
 
 ### Upload Example
 

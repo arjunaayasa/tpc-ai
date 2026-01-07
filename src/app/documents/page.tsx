@@ -50,8 +50,11 @@ export default async function DocumentsPage({
             {/* Navigation */}
             <nav className="border-b border-neutral-800">
                 <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
-                    <span className="font-semibold tracking-tight">TPC Ingestion</span>
+                    <Link href="/chat" className="font-semibold tracking-tight hover:text-emerald-400 transition-colors">TPC AI</Link>
                     <div className="flex gap-6 text-sm">
+                        <Link href="/chat" className="text-neutral-400 hover:text-white transition-colors">
+                            Chat
+                        </Link>
                         <Link href="/documents" className="text-white">
                             Documents
                         </Link>
