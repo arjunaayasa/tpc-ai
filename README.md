@@ -199,11 +199,11 @@ npm run dev
 npm run worker
 ```
 
-🎉 **Open http://localhost:3000**
+**Open http://localhost:3000**
 
 ---
 
-## 🤖 RAG Setup (Retrieval-Augmented Generation)
+## RAG Setup (Retrieval-Augmented Generation)
 
 Untuk menggunakan fitur tanya-jawab dengan sitasi pasal, Anda perlu menjalankan:
 
@@ -296,7 +296,7 @@ Buka **http://localhost:3000/rag** untuk antarmuka tanya-jawab.
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 metadata-gen/
@@ -325,7 +325,7 @@ metadata-gen/
 
 ---
 
-## 📡 API Reference
+## API Reference
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -401,7 +401,7 @@ curl -X PATCH http://localhost:3000/api/documents/{id}/metadata \
 
 ---
 
-## 🔧 Metadata Extraction
+## Metadata Extraction
 
 Sistem mendeteksi metadata dari text dokumen menggunakan regex patterns:
 
@@ -468,7 +468,7 @@ docker compose down
 
 ---
 
-## 📝 Database Schema
+## Database Schema
 
 ```prisma
 enum DocumentStatus {
@@ -539,7 +539,7 @@ npx prisma generate       # Regenerate client
 
 ---
 
-## ⚠️ Troubleshooting
+## Troubleshooting
 
 ### "Redis connection refused"
 Worker membutuhkan Redis. Pastikan Redis berjalan:
@@ -560,13 +560,13 @@ Maksimum file size adalah 50MB.
 
 ---
 
-## 📄 License
+## License
 
 MIT
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork repository
 2. Create feature branch (`git checkout -b feature/amazing-feature`)
