@@ -19,7 +19,7 @@
 
 ---
 
-## 📖 Tentang TPC AI
+## Tentang TPC AI
 
 **TPC AI** adalah asisten perpajakan berbasis kecerdasan buatan yang dirancang khusus untuk menjawab pertanyaan seputar regulasi pajak Indonesia. Menggunakan teknologi **RAG (Retrieval-Augmented Generation)**, TPC AI dapat:
 
@@ -28,29 +28,29 @@
 - Menampilkan **proses berpikir (Thinking Mode)** untuk transparansi
 - Menyediakan interface chat **seperti ChatGPT** yang familiar
 
-## ✨ Fitur Utama
+## Fitur Utama
 
-### 💬 Chat Interface
+### Chat Interface
 - **Streaming Response** - Jawaban ditampilkan secara real-time
 - **Thinking Mode** - Tampilkan proses analisis AI (collapsible)
 - **Multi-conversation** - Kelola banyak percakapan dengan history
 - **Suggestion Chips** - Quick prompts untuk pertanyaan umum
 - **Dark Mode UI** - Tampilan modern seperti ChatGPT
 
-### 📄 Document Management
+### Document Management
 - **Upload Dokumen** - Drag-and-drop PDF, HTML, TXT
 - **Ekstraksi Metadata Otomatis** - Deteksi jenis regulasi, nomor, tahun
 - **Chunking per Pasal/Ayat** - Pemecahan dokumen untuk pencarian akurat
 - **Vector Embeddings** - Embedding otomatis dengan Ollama/TEI
 - **Review Workflow** - Draft, approve, atau re-run extraction
 
-### 🔍 RAG System
+### RAG System
 - **Semantic Search** - Pencarian berbasis makna dengan pgvector
 - **Citation System** - Referensi pasal yang dapat diklik
 - **Context-Aware** - Jawaban berdasarkan dokumen yang relevan
 - **Opinion Support** - AI dapat memberikan analisis profesional jika diminta
 
-## 🏗️ Tech Stack
+## Tech Stack
 
 | Layer | Technology |
 |-------|------------|
@@ -65,15 +65,15 @@
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
 | Software | Version | Required |
 |----------|---------|----------|
-| Node.js | 18+ | ✅ Yes |
-| PostgreSQL | 15+ | ✅ Yes |
-| Redis | 7+ | ⚠️ For worker |
+| Node.js | 18+ | Yes |
+| PostgreSQL | 15+ | Yes |
+| Redis | 7+ | For worker |
 
 ### 1. Clone & Install
 
