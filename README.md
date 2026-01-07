@@ -1,32 +1,67 @@
-# Tax KB Ingestion MVP
+# TPC AI - Tax Assistant
 
-Sistem ingestion dokumen regulasi pajak Indonesia dengan ekstraksi metadata otomatis dan **RAG (Retrieval-Augmented Generation)** untuk menjawab pertanyaan dengan sitasi pasal.
+<p align="center">
+  <img src="public/logotpc.jpg" alt="TPC AI Logo" width="120" height="120" style="border-radius: 50%;">
+</p>
 
-![Next.js](https://img.shields.io/badge/Next.js-16-black)
-![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-blue)
-![Redis](https://img.shields.io/badge/Redis-7-red)
-![pgvector](https://img.shields.io/badge/pgvector-0.7+-green)
+<p align="center">
+  <strong>Asisten Pajak Cerdas Berbasis AI</strong><br>
+  RAG-powered chatbot untuk menjawab pertanyaan perpajakan Indonesia dengan sitasi pasal yang akurat
+</p>
 
-## ✨ Fitur
+<p align="center">
+  <img src="https://img.shields.io/badge/Next.js-16-black" alt="Next.js">
+  <img src="https://img.shields.io/badge/TypeScript-5-blue" alt="TypeScript">
+  <img src="https://img.shields.io/badge/PostgreSQL-18-blue" alt="PostgreSQL">
+  <img src="https://img.shields.io/badge/pgvector-0.8-green" alt="pgvector">
+  <img src="https://img.shields.io/badge/Ollama-LLM-orange" alt="Ollama">
+</p>
 
-- **Upload Dokumen** - Drag-and-drop PDF, HTML, TXT dengan validasi
-- **Ekstraksi Metadata Otomatis** - Regex heuristics untuk regulasi pajak Indonesia
-- **Chunking per Pasal/Ayat** - Memecah dokumen menjadi chunks yang dapat dicari
-- **Vector Embeddings** - Embedding otomatis menggunakan TEI atau Ollama
-- **RAG dengan Sitasi** - Tanya jawab dengan referensi pasal yang akurat
-- **Review Workflow** - Save draft, approve, atau re-run extraction
-- **Status Tracking** - uploaded → processing → needs_review → approved/failed
+---
+
+## 📖 Tentang TPC AI
+
+**TPC AI** adalah asisten perpajakan berbasis kecerdasan buatan yang dirancang khusus untuk menjawab pertanyaan seputar regulasi pajak Indonesia. Menggunakan teknologi **RAG (Retrieval-Augmented Generation)**, TPC AI dapat:
+
+- Menjawab pertanyaan perpajakan dengan **akurat dan kontekstual**
+- Memberikan **sitasi pasal** dari dokumen regulasi resmi
+- Menampilkan **proses berpikir (Thinking Mode)** untuk transparansi
+- Menyediakan interface chat **seperti ChatGPT** yang familiar
+
+## ✨ Fitur Utama
+
+### 💬 Chat Interface
+- **Streaming Response** - Jawaban ditampilkan secara real-time
+- **Thinking Mode** - Tampilkan proses analisis AI (collapsible)
+- **Multi-conversation** - Kelola banyak percakapan dengan history
+- **Suggestion Chips** - Quick prompts untuk pertanyaan umum
+- **Dark Mode UI** - Tampilan modern seperti ChatGPT
+
+### 📄 Document Management
+- **Upload Dokumen** - Drag-and-drop PDF, HTML, TXT
+- **Ekstraksi Metadata Otomatis** - Deteksi jenis regulasi, nomor, tahun
+- **Chunking per Pasal/Ayat** - Pemecahan dokumen untuk pencarian akurat
+- **Vector Embeddings** - Embedding otomatis dengan Ollama/TEI
+- **Review Workflow** - Draft, approve, atau re-run extraction
+
+### 🔍 RAG System
+- **Semantic Search** - Pencarian berbasis makna dengan pgvector
+- **Citation System** - Referensi pasal yang dapat diklik
+- **Context-Aware** - Jawaban berdasarkan dokumen yang relevan
+- **Opinion Support** - AI dapat memberikan analisis profesional jika diminta
 
 ## 🏗️ Tech Stack
 
-- **Frontend**: Next.js 14+ (App Router), TypeScript, Tailwind CSS
-- **Backend**: Next.js API Routes (Node runtime)
-- **Database**: PostgreSQL + Prisma ORM + **pgvector**
-- **Queue**: Redis + BullMQ
-- **Embeddings**: TEI (Text Embeddings Inference) atau Ollama
-- **LLM**: Ollama (qwen2.5:7b-instruct atau model lain)
-- **File Storage**: Local filesystem (`/uploads`)
+| Layer | Technology |
+|-------|------------|
+| **Frontend** | Next.js 16 (App Router), TypeScript, Tailwind CSS |
+| **Backend** | Next.js API Routes, Server-Sent Events (SSE) |
+| **Database** | PostgreSQL 18 + Prisma ORM + **pgvector** |
+| **Vector Store** | pgvector (768 dimensions) |
+| **Embeddings** | Ollama (nomic-embed-text) / TEI |
+| **LLM** | Ollama (qwen2.5:7b-instruct) |
+| **Queue** | Redis + BullMQ |
+| **Storage** | Local filesystem (`/uploads`) |
 
 ---
 
