@@ -211,6 +211,7 @@ export default function ChatPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: userMessage.content,
+          history: currentConv ? currentConv.messages.map(m => ({ role: m.role, content: m.content })) : [],
           topK: 10,
           mode: 'strict',
           enableThinking,
@@ -267,7 +268,13 @@ export default function ChatPage() {
       setConversations((prev) => prev.map((c) => c.id === conversationId ? {
         ...c, messages: c.messages.map((msg) => msg.id === assistantId ? { ...msg, content: 'Maaf, terjadi kesalahan.', isStreaming: false } : msg),
       } : c));
-    } finally { setIsLoading(false); }
+    } finally {
+      setIsLoading(false);
+      // Ensure streaming state is cleared even if connection closed abruptly
+      setConversations((prev) => prev.map((c) => c.id === conversationId ? {
+        ...c, messages: c.messages.map((msg) => msg.id === assistantId ? { ...msg, isStreaming: false } : msg),
+      } : c));
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -510,10 +517,13 @@ export default function ChatPage() {
                         </button>
 
                         {(message.thinkingExpanded || (message.isStreaming && message.streamingStage === 'thinking')) && (
-                          <div className={`text-xs font-mono p-4 rounded-lg border border-l-4 ${isDarkMode
-                            ? 'bg-black/20 border-white/5 border-l-blue-500/50 text-gray-400 whitespace-pre-wrap'
-                            : 'bg-gray-50 border-gray-200 border-l-blue-400 text-gray-600 whitespace-pre-wrap'
+                          <div className={`text-xs font-mono p-4 rounded-lg border border-l-4 overflow-x-auto ${isDarkMode
+                            ? 'bg-[#0d1117] border-[#30363d] border-l-blue-500 text-gray-300 font-mono shadow-inner'
+                            : 'bg-[#1e1e1e] border-gray-800 border-l-blue-500 text-green-400 font-mono shadow-inner'
                             }`}>
+                            <div className="flex items-center gap-2 mb-2 border-b border-white/10 pb-2 text-[10px] opacity-70">
+                              <span>$ thinking_process.sh</span>
+                            </div>
                             {message.thinking}
                             {message.isStreaming && message.streamingStage === 'thinking' && <span className="inline-block w-1.5 h-3 bg-blue-500 ml-1 animate-pulse"></span>}
                           </div>
@@ -552,6 +562,15 @@ export default function ChatPage() {
                       >
                         {message.content.replace(/\[C(\d+)\]/g, ' `[C$1]` ')}
                       </ReactMarkdown>
+
+                      {/* Typing Indicator */}
+                      {message.role === 'assistant' && message.isStreaming && !message.content && (!message.thinking || message.streamingStage === 'answering') && (
+                        <div className="flex gap-1.5 items-center py-2 px-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-[bounce_1s_infinite_-0.3s]"></span>
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-[bounce_1s_infinite_-0.15s]"></span>
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-[bounce_1s_infinite]"></span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Citations Button */}

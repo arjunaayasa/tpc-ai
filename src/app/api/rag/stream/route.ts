@@ -35,6 +35,10 @@ const streamRequestSchema = z.object({
     mode: z.enum(['strict', 'balanced']).default('strict'),
     enableThinking: z.boolean().default(true),
     model: z.enum(['owlie-loc', 'owlie-chat', 'owlie-thinking', 'owlie-max']).default('owlie-loc'),
+    history: z.array(z.object({
+        role: z.enum(['user', 'assistant']),
+        content: z.string()
+    })).optional().default([]),
 });
 
 /**
@@ -53,14 +57,23 @@ function createSSEStream() {
 
     const send = (event: string, data: unknown) => {
         if (isClosed) return;
-        const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-        controller.enqueue(encoder.encode(message));
+        try {
+            const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+            controller.enqueue(encoder.encode(message));
+        } catch (e) {
+            isClosed = true;
+            console.warn('[Stream] Controller enqueue failed:', e);
+        }
     };
 
     const close = () => {
         if (isClosed) return;
         isClosed = true;
-        controller.close();
+        try {
+            controller.close();
+        } catch (e) {
+            console.warn('[Stream] Controller close failed:', e);
+        }
     };
 
     return { stream, send, close };
@@ -145,7 +158,7 @@ export async function POST(request: NextRequest) {
             });
         }
 
-        const { question, topK, filters, mode, enableThinking, model } = parseResult.data;
+        const { question, topK, filters, mode, enableThinking, model, history } = parseResult.data;
         const modelInfo = getModelInfo(model as OwlieModel);
 
         // Create SSE stream
@@ -163,8 +176,13 @@ export async function POST(request: NextRequest) {
                         model: { id: modelInfo.id, name: modelInfo.name, icon: modelInfo.icon }
                     });
 
-                    // Use AI to generate natural casual response
-                    const casualMessages = buildCasualMessages(question);
+                    // Use AI to generate natural casual response with history
+                    const baseCasualMessages = buildCasualMessages(question);
+                    const casualMessages = [
+                        baseCasualMessages[0], // System
+                        ...history,
+                        baseCasualMessages[1]  // User
+                    ];
                     let answerContent = '';
 
                     for await (const chunk of streamChat(model as OwlieModel, casualMessages, {
@@ -212,8 +230,13 @@ export async function POST(request: NextRequest) {
 
                 send('status', { stage: 'retrieved', chunksCount: chunks.length });
 
-                // 3. Build messages
-                const { messages, labeledChunks } = buildRAGMessages(question, chunks, mode);
+                // 3. Build messages with history
+                const { messages: baseMessages, labeledChunks } = buildRAGMessages(question, chunks, mode);
+                const messages = [
+                    baseMessages[0], // System
+                    ...history,
+                    baseMessages[1]  // User with context
+                ];
 
                 console.log(`[Stream] Using model: ${modelInfo.id} (${modelInfo.model}), Built-in thinking: ${modelInfo.hasBuiltinThinking}`);
 
