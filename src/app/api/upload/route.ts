@@ -10,6 +10,12 @@ export async function POST(request: NextRequest) {
     try {
         const formData = await request.formData();
         const file = formData.get('file');
+        const docTypeRaw = formData.get('docType');
+        
+        // Validate docType
+        let docType: 'PERATURAN' | 'PUTUSAN' | 'BUKU' = 'PERATURAN';
+        if (docTypeRaw === 'PUTUSAN') docType = 'PUTUSAN';
+        else if (docTypeRaw === 'BUKU') docType = 'BUKU';
 
         if (!file || !(file instanceof File)) {
             return NextResponse.json(
@@ -61,6 +67,7 @@ export async function POST(request: NextRequest) {
                 mimeType: uploadResult.mimeType,
                 filePath: uploadResult.filePath,
                 sha256: uploadResult.sha256,
+                docType: docType,
                 status: 'uploaded',
             },
         });

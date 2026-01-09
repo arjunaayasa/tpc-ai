@@ -12,6 +12,7 @@ interface DocumentWithMetadata {
         jenis: string;
         nomor: string | null;
         tahun: number | null;
+        reviewerName: string | null;
     } | null;
 }
 
@@ -121,6 +122,7 @@ export default async function DocumentsPage({
                                     <th className="text-left py-3 px-4 font-medium">Number</th>
                                     <th className="text-left py-3 px-4 font-medium">Year</th>
                                     <th className="text-left py-3 px-4 font-medium">Status</th>
+                                    <th className="text-left py-3 px-4 font-medium">Reviewed By</th>
                                     <th className="text-left py-3 px-4 font-medium">Updated</th>
                                 </tr>
                             </thead>
@@ -157,6 +159,9 @@ export default async function DocumentsPage({
                       `}>
                                                 {statusLabels[doc.status]}
                                             </span>
+                                        </td>
+                                        <td className="py-3 px-4 text-green-500">
+                                            {doc.metadata?.reviewerName || '-'}
                                         </td>
                                         <td className="py-3 px-4 text-neutral-500">
                                             {new Date(doc.updatedAt).toLocaleDateString('en-US', {

@@ -11,22 +11,26 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Next.js-16-black" alt="Next.js">
-  <img src="https://img.shields.io/badge/TypeScript-5-blue" alt="TypeScript">
+  <img src="https://img.shields.io/badge/DeepSeek-V3-blue" alt="DeepSeek">
   <img src="https://img.shields.io/badge/PostgreSQL-18-blue" alt="PostgreSQL">
   <img src="https://img.shields.io/badge/pgvector-0.8-green" alt="pgvector">
-  <img src="https://img.shields.io/badge/Ollama-LLM-orange" alt="Ollama">
+  <img src="https://img.shields.io/badge/Ollama-Embeddings-orange" alt="Ollama">
 </p>
+
 
 ---
 
 ## Tentang TPC AI
 
-**TPC AI** adalah asisten perpajakan berbasis kecerdasan buatan yang dirancang khusus untuk menjawab pertanyaan seputar regulasi pajak Indonesia. Menggunakan teknologi **RAG (Retrieval-Augmented Generation)**, TPC AI dapat:
+**TPC AI (Owlie)** adalah asisten perpajakan berbasis kecerdasan buatan (**DeepSeek Reasoner v1.5**) yang dirancang khusus untuk menjawab pertanyaan seputar regulasi pajak Indonesia.
+
+Menggunakan teknologi **RAG (Retrieval-Augmented Generation)**, TPC AI dapat:
 
 - Menjawab pertanyaan perpajakan dengan **akurat dan kontekstual**
 - Memberikan **sitasi pasal** dari dokumen regulasi resmi
 - Menampilkan **proses berpikir (Thinking Mode)** untuk transparansi
-- Menyediakan interface chat **seperti ChatGPT** yang familiar
+- **Liquid Glass UI** - Tampilan modern dengan Aurora Gradients dan Glassmorphism
+
 
 ## Fitur Utama
 
@@ -39,6 +43,7 @@
 
 ### Document Management
 - **Upload Dokumen** - Drag-and-drop PDF, HTML, TXT
+- **Dua Jenis Dokumen** - Peraturan (UU, PP, PMK, dll) dan Putusan Pengadilan Pajak
 - **Ekstraksi Metadata Otomatis** - Deteksi jenis regulasi, nomor, tahun
 - **Chunking per Pasal/Ayat** - Pemecahan dokumen untuk pencarian akurat
 - **Vector Embeddings** - Embedding otomatis dengan Ollama/TEI
@@ -50,6 +55,26 @@
 - **Context-Aware** - Jawaban berdasarkan dokumen yang relevan
 - **Opinion Support** - AI dapat memberikan analisis profesional jika diminta
 
+### Dokumen Putusan
+Sistem mendukung dokumen **Putusan Pengadilan Pajak** dengan ekstraksi khusus:
+
+**Sections yang dideteksi:**
+- Header/Identitas (Nomor Putusan, Tahun)
+- Duduk Perkara
+- Posisi Pemohon Banding (dengan subseksi roman numeral)
+- Posisi Terbanding
+- Surat Bantahan
+- Pembuktian/Bukti (P-1, P-2, dst)
+- Pertimbangan Majelis
+- Amar Putusan
+
+**Fitur UI Putusan:**
+- Outline tree dengan navigasi section
+- Role badges (Majelis, Pemohon, Terbanding)
+- Evidence list (Bukti P-x)
+- Legal references (Pasal yang direferensi)
+- Amar sebagai pinned section
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -59,7 +84,7 @@
 | **Database** | PostgreSQL 18 + Prisma ORM + **pgvector** |
 | **Vector Store** | pgvector (768 dimensions) |
 | **Embeddings** | Ollama (nomic-embed-text) / TEI |
-| **LLM** | Ollama (qwen2.5:7b-instruct) |
+| **LLM** | DeepSeek (Chat v1.5 & Reasoner v1.5) |
 | **Queue** | Redis + BullMQ |
 | **Storage** | Local filesystem (`/uploads`) |
 

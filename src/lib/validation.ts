@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 // Local enum values matching Prisma schema
-const RegulationTypeValues = ['UU', 'PP', 'PMK', 'PER', 'SE', 'KEP', 'UNKNOWN'] as const;
+const RegulationTypeValues = ['UU', 'PP', 'PMK', 'PER', 'SE', 'KEP', 'PUTUSAN', 'BUKU', 'UNKNOWN'] as const;
 const RegulationStatusValues = ['berlaku', 'diubah', 'dicabut', 'unknown'] as const;
 
 // Upload file validation
@@ -19,6 +19,7 @@ export const metadataUpdateSchema = z.object({
     tanggalBerlaku: z.string().nullable().optional(), // ISO date string
     statusAturan: z.enum(RegulationStatusValues).optional(),
     approve: z.boolean().optional(), // If true, set document status to approved
+    reviewerName: z.string().optional(), // Name of person approving
 });
 
 export type MetadataUpdateInput = z.infer<typeof metadataUpdateSchema>;

@@ -6,7 +6,7 @@ CREATE TABLE "ChunkEmbedding" (
     "id" TEXT NOT NULL,
     "chunkId" TEXT NOT NULL,
     "modelName" TEXT NOT NULL,
-    "embedding" vector(1024),
+    "embedding" vector(768),
     "textHash" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,

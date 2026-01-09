@@ -4,7 +4,7 @@
  */
 
 import { ChunkResult } from './retrieval';
-import { ChatMessage } from './ollama';
+import { ChatMessage } from './chat-service';
 
 export type AnswerMode = 'strict' | 'balanced';
 
@@ -34,7 +34,7 @@ function buildContext(chunks: LabeledChunk[]): string {
             metadata.nomor,
             metadata.tahun ? `Tahun ${metadata.tahun}` : null,
         ].filter(Boolean).join(' ');
-        
+
         return `[${chunk.label}] ${docInfo ? `(${docInfo}) ` : ''}${citation}
 ${chunk.text}`;
     }).join('\n\n---\n\n');
@@ -58,17 +58,24 @@ ATURAN:
 3. Jika konteks tidak mencukupi, boleh memberikan penjelasan umum tapi sampaikan bahwa itu bukan dari dokumen yang tersedia.
 4. DILARANG mengarang nomor pasal atau regulasi yang tidak ada di konteks.`;
 
-    return `Anda adalah TPC AI, asisten perpajakan Indonesia yang ahli, helpful, dan memiliki pendapat profesional.
+    return `Anda adalah TPC AI (Owlie), asisten perpajakan Indonesia yang ahli, helpful, dan memiliki pendapat profesional.
+
+IDENTITAS:
+- Nama Anda adalah "TPC AI" atau "Owlie".
+- Jika ditanya tentang teknologi, model AI, atau sistem yang Anda gunakan, jawab hanya: "Saya TPC AI (Owlie), asisten perpajakan yang dikembangkan oleh TPC."
+- DILARANG menyebutkan nama model AI lain seperti Qwen, GPT, Claude, Gemini, atau nama teknis lainnya.
+- DILARANG menyebutkan bahwa Anda adalah produk Alibaba, OpenAI, Anthropic, Google, atau perusahaan teknologi lainnya.
 
 ${mode === 'strict' ? strictRules : balancedRules}
 
 CARA MENJAWAB:
-- Jawab dengan lengkap, detail, dan komprehensif sesuai kebutuhan pertanyaan.
-- Gunakan bahasa Indonesia yang natural dan mudah dipahami.
+CARA MENJAWAB:
+- Gunakan **Header Markdown** (## Topik Utama, ### Detail) untuk menstruktur jawaban. JANGAN gunakan h1 (#).
+- **WAJIB** gunakan jarak antar paragraf (double break) agar teks tidak menumpuk.
+- Gunakan bullet points atau numbering untuk list.
+- Jawab dengan bahasa Indonesia yang natural, profesional, dan mudah dipahami.
 - Jelaskan konsep dengan jelas, berikan contoh jika membantu.
-- Tidak perlu mengikuti format tertentu - jawab secara natural seperti seorang konsultan pajak yang ahli.
-- Boleh menggunakan bullet points, numbering, atau paragraf sesuai kebutuhan.
-- WAJIB cantumkan sitasi [C1], [C2], dst saat mengutip dari konteks.
+- WAJIB cantumkan sitasi [C1], [C2], dst tepat di akhir kalimat yang relevan.
 - Di akhir jawaban, cantumkan daftar referensi yang digunakan.
 
 PENDAPAT DAN ANALISIS:
@@ -85,7 +92,7 @@ Konteks berisi potongan regulasi yang relevan dengan label [C1], [C2], dst.`;
  */
 function buildUserPrompt(question: string, chunks: LabeledChunk[]): string {
     const context = buildContext(chunks);
-    
+
     return `KONTEKS REGULASI:
 ${context}
 
@@ -106,7 +113,7 @@ export function buildRAGMessages(
     mode: AnswerMode = 'strict'
 ): { messages: ChatMessage[]; labeledChunks: LabeledChunk[] } {
     const labeledChunks = labelChunks(chunks);
-    
+
     const messages: ChatMessage[] = [
         {
             role: 'system',
@@ -117,7 +124,7 @@ export function buildRAGMessages(
             content: buildUserPrompt(question, labeledChunks),
         },
     ];
-    
+
     return { messages, labeledChunks };
 }
 
@@ -129,11 +136,11 @@ export function extractCitationsFromAnswer(answer: string): string[] {
     const regex = /\[C(\d+)\]/g;
     const citations = new Set<string>();
     let match;
-    
+
     while ((match = regex.exec(answer)) !== null) {
         citations.add(`C${match[1]}`);
     }
-    
+
     return Array.from(citations).sort((a, b) => {
         const numA = parseInt(a.slice(1));
         const numB = parseInt(b.slice(1));

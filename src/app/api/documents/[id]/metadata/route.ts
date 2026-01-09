@@ -48,6 +48,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         if (data.tahun !== undefined) updateData.tahun = data.tahun;
         if (data.judul !== undefined) updateData.judul = data.judul;
         if (data.statusAturan !== undefined) updateData.statusAturan = data.statusAturan;
+        if (data.reviewerName !== undefined) updateData.reviewerName = data.reviewerName;
 
         if (data.tanggalTerbit !== undefined) {
             updateData.tanggalTerbit = data.tanggalTerbit ? new Date(data.tanggalTerbit) : null;
@@ -68,6 +69,15 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
         // Update document status if approving
         if (data.approve) {
+            // Set confidence to 100% and save reviewer name
+            await prisma.documentMetadata.update({
+                where: { documentId: id },
+                data: {
+                    confidence: 1.0,
+                    reviewerName: data.reviewerName || null,
+                },
+            });
+
             await prisma.document.update({
                 where: { id },
                 data: { status: 'approved' },

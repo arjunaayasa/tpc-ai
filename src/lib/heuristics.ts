@@ -1,5 +1,5 @@
 // Local type definitions matching Prisma schema
-type RegulationType = 'UU' | 'PP' | 'PMK' | 'PER' | 'SE' | 'KEP' | 'UNKNOWN';
+type RegulationType = 'UU' | 'PP' | 'PMK' | 'PER' | 'SE' | 'KEP' | 'PUTUSAN' | 'BUKU' | 'UNKNOWN';
 type RegulationStatus = 'berlaku' | 'diubah' | 'dicabut' | 'unknown';
 
 export interface ExtractedMetadata {
@@ -18,6 +18,18 @@ export interface ExtractedMetadata {
 const PATTERNS = {
     // Jenis dokumen patterns
     jenisPatterns: [
+        { regex: /\bPUTUSAN\b/i, type: 'PUTUSAN' as const },
+        { regex: /\bPUT[-.]\d+/i, type: 'PUTUSAN' as const },
+        { regex: /\bPENGADILAN\s+PAJAK\b/i, type: 'PUTUSAN' as const },
+        // BUKU detection - more flexible patterns
+        { regex: /\bBAB\s+[IVX]+\b[\s\S]{0,5000}\bBAB\s+[IVX]+\b/i, type: 'BUKU' as const }, // Multiple BAB with Roman
+        { regex: /\bBAB\s+\d+\b[\s\S]{0,5000}\bBAB\s+\d+\b/i, type: 'BUKU' as const }, // Multiple BAB with Arabic
+        { regex: /\bCHAPTER\s+\d+\b[\s\S]{0,5000}\bCHAPTER\s+\d+\b/i, type: 'BUKU' as const }, // Multiple CHAPTER
+        { regex: /\bDAFTAR\s+ISI\b[\s\S]{0,2000}(?:BAB|CHAPTER|\d+\.\s+[A-Z])/i, type: 'BUKU' as const }, // Daftar isi followed by chapters
+        { regex: /\bKATA\s+PENGANTAR\b[\s\S]{0,3000}\bDAFTAR\s+ISI\b/i, type: 'BUKU' as const }, // Kata pengantar + daftar isi
+        { regex: /\bPenerbit\b[\s\S]{0,500}\bISBN\b/i, type: 'BUKU' as const }, // Publisher + ISBN
+        { regex: /\bISBN\b\s*:?\s*[\d\-]+/i, type: 'BUKU' as const }, // ISBN number
+        // Peraturan patterns
         { regex: /\bUNDANG[- ]?UNDANG\b/i, type: 'UU' as const },
         { regex: /\bUU\s*(?:NOMOR|NO\.?|:)\s*\d+/i, type: 'UU' as const },
         { regex: /\bPERATURAN\s+PEMERINTAH\b/i, type: 'PP' as const },

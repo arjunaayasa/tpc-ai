@@ -17,6 +17,12 @@ enum DocumentStatus {
   failed
 }
 
+enum DocumentType {
+  PERATURAN
+  PUTUSAN
+  BUKU
+}
+
 enum RegulationType {
   UU
   PP
@@ -24,6 +30,8 @@ enum RegulationType {
   PER
   SE
   KEP
+  PUTUSAN
+  BUKU
   UNKNOWN
 }
 
@@ -34,6 +42,25 @@ enum RegulationStatus {
   unknown
 }
 
+enum ChunkType {
+  PREAMBLE
+  PASAL
+  AYAT
+  SECTION
+  SUBSECTION
+  EVIDENCE
+  AMAR
+  BAB
+  SUBBAB
+}
+
+enum ChunkRole {
+  MAJELIS
+  PEMOHON
+  TERBANDING
+  UNKNOWN
+}
+
 model Document {
   id           String             @id @default(uuid())
   fileName     String
@@ -41,6 +68,7 @@ model Document {
   mimeType     String
   filePath     String
   sha256       String             @unique
+  docType      DocumentType       @default(PERATURAN)
   status       DocumentStatus     @default(uploaded)
   lastError    String?
   createdAt    DateTime           @default(now())
@@ -48,6 +76,7 @@ model Document {
   metadata     DocumentMetadata?
   content      DocumentContent?
   chunks       RegulationChunk[]
+  tables       DocumentTable[]
 }
 
 model DocumentMetadata {
@@ -64,6 +93,7 @@ model DocumentMetadata {
   confidence      Float            @default(0)
   extractionNotes Json?
   updatedByUser   Boolean          @default(false)
+  reviewerName    String?
   updatedAt       DateTime         @updatedAt
 }
 
@@ -85,6 +115,11 @@ model RegulationChunk {
   pasal          String?
   ayat           String?
   huruf          String?
+  chunkType      ChunkType        @default(PASAL)
+  role           ChunkRole        @default(UNKNOWN)
+  title          String?
+  parentChunkId  String?
+  legalRefs      Json?
   orderIndex     Int
   text           String
   tokenEstimate  Int?
@@ -93,6 +128,7 @@ model RegulationChunk {
 
   @@index([documentId, orderIndex])
   @@index([documentId, pasal])
+  @@index([documentId, chunkType])
 }
 
 model ChunkEmbedding {
@@ -106,4 +142,21 @@ model ChunkEmbedding {
   updatedAt DateTime                     @updatedAt
 
   @@index([chunkId])
+}
+
+// Extracted tables from documents (via AI parsing)
+model DocumentTable {
+  id          String   @id @default(uuid())
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  title       String
+  pageContext String?  // Which section this table belongs to
+  headers     Json     // Array of header strings
+  rows        Json     // Array of { cells: string[] }
+  notes       String?
+  orderIndex  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([documentId])
 }

@@ -2,7 +2,9 @@
 
 import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
+// --- Types ---
 interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -10,6 +12,7 @@ interface Message {
   thinking?: string;
   thinkingExpanded?: boolean;
   citations?: Citation[];
+  citationsExpanded?: boolean; // New state for toggling citations
   chunksUsed?: ChunkUsed[];
   isStreaming?: boolean;
   streamingStage?: 'thinking' | 'answering';
@@ -40,52 +43,92 @@ interface Conversation {
   createdAt: Date;
 }
 
+type OwlieModel = 'owlie-loc' | 'owlie-chat' | 'owlie-thinking' | 'owlie-max';
+
+interface ModelOption {
+  id: OwlieModel;
+  name: string;
+  shortName: string;
+  description: string;
+  color: string;
+}
+
+const MODEL_OPTIONS: ModelOption[] = [
+  {
+    id: 'owlie-loc',
+    name: 'Owlie Lite',
+    shortName: 'Lite',
+    description: 'Model lokal (relatif lambat, offline)',
+    color: 'text-orange-500'
+  },
+  {
+    id: 'owlie-chat',
+    name: 'Owlie Chat v1.5',
+    shortName: 'Chat v1.5',
+    description: 'Owlie merespon dengan cepat.',
+    color: 'text-blue-500'
+  },
+  {
+    id: 'owlie-thinking',
+    name: 'Owlie Thinking v1.5',
+    shortName: 'Thinking v1.5',
+    description: 'Owlie berpikir untuk menjawab.',
+    color: 'text-purple-500'
+  },
+  {
+    id: 'owlie-max',
+    name: 'Owlie Max v1.5',
+    shortName: 'Max v1.5',
+    description: 'Owlie berpikir dan menganalisis lebih dalam untuk menjawab.',
+    color: 'text-rose-500'
+  },
+];
+
 export default function ChatPage() {
+  // --- State ---
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [enableThinking, setEnableThinking] = useState(true);  // Toggle for thinking mode
+  const [enableThinking, setEnableThinking] = useState(true);
+  const [selectedModel, setSelectedModel] = useState<OwlieModel>('owlie-loc');
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(true); // Default dark
+  const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
   const messages = activeConversation?.messages || [];
 
-  // Load conversations from localStorage on mount
+  // --- Effects ---
   useEffect(() => {
-    const saved = localStorage.getItem('tpc-ai-conversations');
-    if (saved) {
+    const savedTheme = localStorage.getItem('tpc-ai-theme');
+    if (savedTheme) setIsDarkMode(savedTheme === 'dark');
+
+    const savedModel = localStorage.getItem('tpc-ai-model');
+    if (savedModel && MODEL_OPTIONS.find(m => m.id === savedModel)) {
+      setSelectedModel(savedModel as OwlieModel);
+    }
+
+    const savedConvs = localStorage.getItem('tpc-ai-conversations');
+    if (savedConvs) {
       try {
-        const parsed = JSON.parse(saved);
-        setConversations(parsed.map((c: Conversation) => ({
-          ...c,
-          createdAt: new Date(c.createdAt),
-        })));
-        if (parsed.length > 0) {
-          setActiveConversationId(parsed[0].id);
-        }
+        const parsed = JSON.parse(savedConvs);
+        setConversations(parsed.map((c: Conversation) => ({ ...c, createdAt: new Date(c.createdAt) })));
+        if (parsed.length > 0) setActiveConversationId(parsed[0].id);
       } catch (e) {
         console.error('Failed to load conversations:', e);
       }
     }
   }, []);
 
-  // Save conversations to localStorage
-  useEffect(() => {
-    if (conversations.length > 0) {
-      localStorage.setItem('tpc-ai-conversations', JSON.stringify(conversations));
-    }
-  }, [conversations]);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  useEffect(() => localStorage.setItem('tpc-ai-theme', isDarkMode ? 'dark' : 'light'), [isDarkMode]);
+  useEffect(() => { if (conversations.length > 0) localStorage.setItem('tpc-ai-conversations', JSON.stringify(conversations)); }, [conversations]);
+  useEffect(() => localStorage.setItem('tpc-ai-model', selectedModel), [selectedModel]);
 
   useEffect(() => {
     if (inputRef.current) {
@@ -94,19 +137,32 @@ export default function ChatPage() {
     }
   }, [input]);
 
+  const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage?.role === 'user' || (lastMessage?.role === 'assistant' && !lastMessage?.isStreaming)) {
+      scrollToBottom();
+    }
+  }, [messages.length, messages[messages.length - 1]?.isStreaming]);
+
+  // --- Handlers ---
   const createNewConversation = () => {
     const newConversation: Conversation = {
       id: Date.now().toString(),
-      title: 'Percakapan Baru',
+      title: 'New chat',
       messages: [],
       createdAt: new Date(),
     };
     setConversations((prev) => [newConversation, ...prev]);
     setActiveConversationId(newConversation.id);
     setInput('');
+    if (window.innerWidth < 768) setSidebarOpen(false);
   };
 
-  const deleteConversation = (id: string) => {
+  const deleteConversation = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!confirm('Hapus percakapan ini?')) return;
     setConversations((prev) => prev.filter((c) => c.id !== id));
     if (activeConversationId === id) {
       const remaining = conversations.filter((c) => c.id !== id);
@@ -115,10 +171,8 @@ export default function ChatPage() {
   };
 
   const updateConversationTitle = (id: string, firstMessage: string) => {
-    const title = firstMessage.slice(0, 40) + (firstMessage.length > 40 ? '...' : '');
-    setConversations((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, title } : c))
-    );
+    const title = firstMessage.slice(0, 30);
+    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title } : c)));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -126,12 +180,10 @@ export default function ChatPage() {
     if (!input.trim() || isLoading) return;
 
     let conversationId = activeConversationId;
-
-    // Create new conversation if none active
     if (!conversationId) {
       const newConversation: Conversation = {
         id: Date.now().toString(),
-        title: input.slice(0, 40) + (input.length > 40 ? '...' : ''),
+        title: input.slice(0, 30),
         messages: [],
         createdAt: new Date(),
       };
@@ -140,40 +192,20 @@ export default function ChatPage() {
       setActiveConversationId(conversationId);
     }
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: input.trim(),
-    };
-
-    // Update title if first message
+    const userMessage: Message = { id: Date.now().toString(), role: 'user', content: input.trim() };
     const currentConv = conversations.find((c) => c.id === conversationId);
-    if (currentConv && currentConv.messages.length === 0) {
-      updateConversationTitle(conversationId, input.trim());
-    }
+    if (currentConv && currentConv.messages.length === 0) updateConversationTitle(conversationId!, input.trim());
+    else if (currentConv && currentConv.title === 'New chat') updateConversationTitle(conversationId!, input.trim());
 
     const assistantId = (Date.now() + 1).toString();
-
-    setConversations((prev) =>
-      prev.map((c) =>
-        c.id === conversationId
-          ? {
-              ...c,
-              messages: [
-                ...c.messages,
-                userMessage,
-                { id: assistantId, role: 'assistant', content: '', isStreaming: true },
-              ],
-            }
-          : c
-      )
-    );
+    setConversations((prev) => prev.map((c) => c.id === conversationId ? {
+      ...c, messages: [...c.messages, userMessage, { id: assistantId, role: 'assistant', content: '', isStreaming: true }]
+    } : c));
 
     setInput('');
     setIsLoading(true);
 
     try {
-      // Use streaming API
       const response = await fetch('/api/rag/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -182,13 +214,11 @@ export default function ChatPage() {
           topK: 10,
           mode: 'strict',
           enableThinking,
+          model: selectedModel,
         }),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to get response');
-      }
-
+      if (!response.ok) throw new Error('Failed to get response');
       const reader = response.body?.getReader();
       if (!reader) throw new Error('No reader');
 
@@ -202,148 +232,42 @@ export default function ChatPage() {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n\n');
         buffer = lines.pop() || '';
 
         for (const line of lines) {
           if (!line.startsWith('event:')) continue;
+          const [, eventType, dataStr] = line.match(/^event: (\w+)\ndata: ([\s\S]+)$/) || [];
+          if (!eventType) continue;
 
-          const eventMatch = line.match(/^event: (\w+)\ndata: ([\s\S]+)$/);
-          if (!eventMatch) continue;
-
-          const [, eventType, dataStr] = eventMatch;
           try {
             const data = JSON.parse(dataStr);
+            setConversations((prev) => prev.map((c) => {
+              if (c.id !== conversationId) return c;
+              const updateMessage = (updater: (msg: Message) => Message) => ({ ...c, messages: c.messages.map(msg => msg.id === assistantId ? updater(msg) : msg) });
 
-            switch (eventType) {
-              case 'status':
-                // Update status
-                setConversations((prev) =>
-                  prev.map((c) =>
-                    c.id === conversationId
-                      ? {
-                          ...c,
-                          messages: c.messages.map((msg) =>
-                            msg.id === assistantId
-                              ? { 
-                                  ...msg, 
-                                  streamingStage: data.stage === 'thinking' ? 'thinking' : 'answering',
-                                }
-                              : msg
-                          ),
-                        }
-                      : c
-                  )
-                );
-                break;
-
-              case 'thinking':
-                currentThinking = data.content || '';
-                setConversations((prev) =>
-                  prev.map((c) =>
-                    c.id === conversationId
-                      ? {
-                          ...c,
-                          messages: c.messages.map((msg) =>
-                            msg.id === assistantId
-                              ? { ...msg, thinking: currentThinking, streamingStage: 'thinking' }
-                              : msg
-                          ),
-                        }
-                      : c
-                  )
-                );
-                break;
-
-              case 'thinking_done':
-                currentThinking = data.content || '';
-                break;
-
-              case 'answer':
-                currentAnswer = data.content || '';
-                setConversations((prev) =>
-                  prev.map((c) =>
-                    c.id === conversationId
-                      ? {
-                          ...c,
-                          messages: c.messages.map((msg) =>
-                            msg.id === assistantId
-                              ? { 
-                                  ...msg, 
-                                  content: currentAnswer, 
-                                  thinking: currentThinking,
-                                  streamingStage: 'answering',
-                                }
-                              : msg
-                          ),
-                        }
-                      : c
-                  )
-                );
-                break;
-
-              case 'citations':
-                currentCitations = data.citations || [];
-                break;
-
-              case 'chunks':
-                currentChunks = data.chunks || [];
-                break;
-
-              case 'done':
-                setConversations((prev) =>
-                  prev.map((c) =>
-                    c.id === conversationId
-                      ? {
-                          ...c,
-                          messages: c.messages.map((msg) =>
-                            msg.id === assistantId
-                              ? { 
-                                  ...msg, 
-                                  content: currentAnswer,
-                                  thinking: currentThinking,
-                                  citations: currentCitations,
-                                  chunksUsed: currentChunks,
-                                  isStreaming: false,
-                                  thinkingExpanded: false,
-                                }
-                              : msg
-                          ),
-                        }
-                      : c
-                  )
-                );
-                break;
-
-              case 'error':
-                throw new Error(data.message);
-            }
-          } catch (e) {
-            console.error('Parse error:', e);
-          }
+              switch (eventType) {
+                case 'status': return updateMessage(msg => ({ ...msg, streamingStage: data.stage === 'thinking' ? 'thinking' : 'answering' }));
+                case 'thinking': currentThinking = data.content || ''; return updateMessage(msg => ({ ...msg, thinking: currentThinking, streamingStage: 'thinking' }));
+                case 'thinking_done': currentThinking = data.content || ''; return updateMessage(msg => ({ ...msg }));
+                case 'answer': currentAnswer = data.content || ''; return updateMessage(msg => ({ ...msg, content: currentAnswer, thinking: currentThinking, streamingStage: 'answering' }));
+                case 'citations': currentCitations = data.citations || []; return c;
+                case 'chunks': currentChunks = data.chunks || []; return c;
+                case 'done': return updateMessage(msg => ({ ...msg, content: currentAnswer, thinking: currentThinking, citations: currentCitations, chunksUsed: currentChunks, isStreaming: false, thinkingExpanded: false }));
+                case 'error': throw new Error(data.message);
+                default: return c;
+              }
+            }));
+          } catch (e) { console.error('Parse error:', e); }
         }
       }
     } catch (error) {
       console.error('Error:', error);
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === conversationId
-            ? {
-                ...c,
-                messages: c.messages.map((msg) =>
-                  msg.id === assistantId
-                    ? { ...msg, content: 'Maaf, terjadi kesalahan. Silakan coba lagi.', isStreaming: false }
-                    : msg
-                ),
-              }
-            : c
-        )
-      );
-    } finally {
-      setIsLoading(false);
-    }
+      setConversations((prev) => prev.map((c) => c.id === conversationId ? {
+        ...c, messages: c.messages.map((msg) => msg.id === assistantId ? { ...msg, content: 'Maaf, terjadi kesalahan.', isStreaming: false } : msg),
+      } : c));
+    } finally { setIsLoading(false); }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -353,382 +277,395 @@ export default function ChatPage() {
     }
   };
 
-  const clearAllConversations = () => {
-    if (confirm('Hapus semua percakapan?')) {
-      setConversations([]);
-      setActiveConversationId(null);
-      localStorage.removeItem('tpc-ai-conversations');
-    }
-  };
+  const ThemeToggle = () => (
+    <button
+      onClick={() => setIsDarkMode(!isDarkMode)}
+      className={`p-2 rounded-lg transition-all text-xs font-medium flex items-center gap-2 ${isDarkMode ? 'text-gray-400 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-black hover:bg-black/5'}`}
+      title={isDarkMode ? 'Light Mode' : 'Dark Mode'}
+    >
+      {isDarkMode ? (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+      ) : (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
+      )}
+    </button>
+  );
+
+  const currentModel = MODEL_OPTIONS.find(m => m.id === selectedModel);
 
   return (
-    <div className="flex h-screen bg-gray-900">
-      {/* Sidebar */}
+    <div className={`relative flex h-screen w-full overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-[#0f1115] text-[#ededed]' : 'bg-[#f8f9fa] text-[#1a1c20]'}`}>
+
+      {/* --- Aurora Backgrounds --- */}
+      <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+        <div className={`absolute top-[-20%] left-[-10%] w-[50vw] h-[50vh] rounded-full blur-[120px] opacity-20 transition-colors duration-1000 ${isDarkMode ? 'bg-blue-900' : 'bg-blue-200'}`}></div>
+        <div className={`absolute bottom-[-10%] right-[-10%] w-[50vw] h-[50vh] rounded-full blur-[120px] opacity-20 transition-colors duration-1000 ${isDarkMode ? 'bg-emerald-900' : 'bg-emerald-200'}`}></div>
+      </div>
+
+      {/* --- Sidebar (ChatGPT Style) --- */}
       <aside
-        className={`${
-          sidebarOpen ? 'w-64' : 'w-0'
-        } flex-shrink-0 bg-gray-950 border-r border-gray-800 transition-all duration-300 overflow-hidden`}
+        className={`${sidebarOpen ? 'w-[260px] translate-x-0' : 'w-0 -translate-x-full'} fixed md:relative z-30 h-full transition-all duration-300 ease-in-out flex-shrink-0 overflow-hidden`}
       >
-        <div className="flex flex-col h-full w-64">
-          {/* Sidebar Header with Logo */}
-          <div className="p-3 border-b border-gray-800">
-            <div className="flex items-center gap-3 mb-3 px-1">
-              <img 
-                src="/logotpc.jpg" 
-                alt="TPC AI" 
-                className="w-8 h-8 rounded-full object-cover"
-              />
-              <span className="font-semibold text-white">TPC AI</span>
+        <div className={`h-full w-[260px] flex flex-col backdrop-blur-xl border-r transition-colors duration-500 ${isDarkMode ? 'bg-[#171717]/95 border-white/5' : 'bg-white/95 border-black/5'}`}>
+          {/* Header: New Chat */}
+          <div className="p-3">
+            <div className="flex items-center gap-3 px-2 mb-3">
+              <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0 shadow-sm border border-white/10">
+                <img src="/logotpc.jpg" alt="TPC" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} />
+                <div className="hidden w-full h-full bg-gradient-to-tr from-blue-600 to-emerald-600 flex items-center justify-center text-white font-bold text-xs">T</div>
+              </div>
+              <span className={`font-bold tracking-tight text-lg ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>TPC AI</span>
             </div>
             <button
               onClick={createNewConversation}
-              className="w-full px-4 py-2.5 text-sm text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg transition-colors font-medium"
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all text-sm group ${isDarkMode
+                ? 'bg-transparent border-white/10 hover:bg-white/5 text-white'
+                : 'bg-white border-black/10 hover:bg-black/5 text-gray-800 shadow-sm'
+                }`}
             >
-              + Percakapan Baru
+              <span className={`p-0.5 rounded-sm ${isDarkMode ? 'bg-white text-black' : 'bg-black text-white'}`}>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+              </span>
+              <span className="font-medium">New chat</span>
+
+              <svg className="w-4 h-4 ml-auto opacity-0 group-hover:opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
             </button>
           </div>
 
-          {/* Conversation List */}
-          <div className="flex-1 overflow-y-auto py-2">
+          {/* List */}
+          <div className="flex-1 overflow-y-auto px-2 py-2 container-snap custom-scrollbar">
+            <div className={`px-2 mb-2 text-xs font-semibold ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Recent</div>
             {conversations.length === 0 ? (
-              <p className="px-4 py-8 text-sm text-gray-500 text-center">
-                Belum ada percakapan
-              </p>
+              <div className={`text-center py-4 text-xs italic ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}>No history</div>
             ) : (
               conversations.map((conv) => (
                 <div
                   key={conv.id}
-                  className={`group flex items-center gap-2 mx-2 mb-1 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
-                    activeConversationId === conv.id
-                      ? 'bg-gray-800 text-white'
-                      : 'text-gray-400 hover:bg-gray-800/50 hover:text-gray-200'
-                  }`}
                   onClick={() => setActiveConversationId(conv.id)}
+                  className={`group relative px-3 py-2.5 rounded-lg cursor-pointer transition-colors text-sm ${activeConversationId === conv.id
+                    ? isDarkMode ? 'bg-[#2b2d31] text-white' : 'bg-gray-200 text-gray-900'
+                    : isDarkMode ? 'text-gray-300 hover:bg-[#202123]' : 'text-gray-600 hover:bg-gray-100'
+                    }`}
                 >
-                  <span className="flex-1 text-sm truncate">{conv.title}</span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteConversation(conv.id);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 text-xs px-1"
-                  >
-                    ✕
-                  </button>
+                  <div className="line-clamp-1 pr-6">{conv.title || 'New chat'}</div>
+
+                  {/* Delete Action (Hover) */}
+                  <div className={`absolute right-1 top-1/2 -translate-y-1/2 flex opacity-0 group-hover:opacity-100 pl-4 ${activeConversationId === conv.id ? (isDarkMode ? 'bg-gradient-to-l from-[#2b2d31] to-transparent' : 'bg-gradient-to-l from-gray-200 to-transparent') : (isDarkMode ? 'bg-gradient-to-l from-[#202123] to-transparent' : 'bg-gradient-to-l from-gray-100 to-transparent')}`}>
+                    <button onClick={(e) => deleteConversation(conv.id, e)} className="p-1 hover:text-red-400 text-gray-400 transition-colors">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                  </div>
                 </div>
               ))
             )}
           </div>
 
-          {/* Sidebar Footer */}
-          <div className="p-3 border-t border-gray-800 space-y-2">
-            <a
-              href="/documents"
-              className="block w-full px-4 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors text-center"
+          {/* Footer (Profile like) */}
+          <div className={`p-2 border-t ${isDarkMode ? 'border-white/10' : 'border-black/5'}`}>
+            <button
+              onClick={() => window.location.href = '/documents'}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm transition-colors text-left group ${isDarkMode ? 'hover:bg-[#202123] text-white' : 'hover:bg-gray-100 text-gray-900'}`}
             >
-              Kelola Dokumen
-            </a>
-            {conversations.length > 0 && (
-              <button
-                onClick={clearAllConversations}
-                className="w-full px-4 py-2 text-sm text-gray-500 hover:text-red-400 hover:bg-gray-800 rounded-lg transition-colors"
-              >
-                Hapus Semua
-              </button>
-            )}
+              <div className="w-8 h-8 rounded-full bg-emerald-600 flex items-center justify-center text-white font-bold text-xs">A</div>
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate">Admin User</div>
+                <div className={`text-[10px] truncate ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Manage Documents</div>
+              </div>
+            </button>
           </div>
         </div>
       </aside>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <header className="flex items-center gap-3 px-4 py-3 border-b border-gray-800 bg-gray-900">
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
-          <h1 className="text-lg font-semibold text-white">TPC AI</h1>
-          <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">Tax Assistant</span>
+      {/* --- Main Area --- */}
+      <main className="relative flex-1 flex flex-col min-w-0 z-10 h-full">
+        {/* Navbar */}
+        <header className={`flex items-center justify-between px-4 py-3 sticky top-0 z-20 backdrop-blur-md transition-colors ${isDarkMode ? 'bg-[#0f1115]/80' : 'bg-[#f8f9fa]/80'}`}>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setSidebarOpen(!sidebarOpen)} className={`p-2 rounded-md transition-colors ${isDarkMode ? 'hover:bg-white/10 text-gray-400' : 'hover:bg-black/5 text-gray-500'}`}>
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+            </button>
+
+            {/* Model Selector */}
+            <div className="relative">
+              <button
+                onClick={() => setModelMenuOpen(!modelMenuOpen)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all text-sm font-medium ${isDarkMode
+                  ? 'bg-transparent hover:bg-white/10 text-gray-300 border-transparent hover:border-white/10'
+                  : 'bg-transparent hover:bg-black/5 text-gray-700 border-transparent hover:border-black/5'
+                  }`}
+              >
+                <span className="opacity-60">TPC AI</span>
+                <span className={currentModel?.color}>{currentModel?.shortName}</span>
+                <svg className={`w-3 h-3 ml-1 opacity-50 transition-transform ${modelMenuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+              </button>
+
+              {modelMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setModelMenuOpen(false)}></div>
+                  <div className={`absolute top-full left-0 mt-2 w-72 p-1.5 rounded-xl border shadow-xl backdrop-blur-xl z-40 animate-in fade-in zoom-in-95 duration-200 ${isDarkMode ? 'bg-[#1e2025]/95 border-white/10' : 'bg-white/95 border-gray-100'}`}>
+                    {MODEL_OPTIONS.map((model) => (
+                      <button
+                        key={model.id}
+                        onClick={() => { setSelectedModel(model.id); setModelMenuOpen(false); }}
+                        className={`w-full flex items-start gap-3 p-3 rounded-lg text-left transition-colors ${selectedModel === model.id
+                          ? isDarkMode ? 'bg-white/10' : 'bg-gray-100'
+                          : isDarkMode ? 'hover:bg-white/5' : 'hover:bg-gray-50'
+                          }`}
+                      >
+                        <div className="flex-1">
+                          <div className="text-sm font-medium flex items-center gap-2">
+                            <span className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>TPC AI</span>
+                            <span className={model.color}>{model.name}</span>
+                          </div>
+                          <div className={`text-xs mt-0.5 leading-relaxed ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                            {model.description}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Theme Toggle (Right Side) */}
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+          </div>
         </header>
 
-        {/* Messages Area */}
-        <main className="flex-1 overflow-y-auto">
+        {/* Messages */}
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-8 scroll-smooth">
           {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center px-4">
-              {/* Logo centered like ChatGPT */}
-              <div className="mb-6">
-                <img 
-                  src="/logotpc.jpg" 
-                  alt="TPC AI" 
-                  className="w-16 h-16 rounded-full object-cover border-2 border-gray-700"
-                />
-              </div>
-              <h2 className="text-2xl font-medium text-white mb-8">Ada yang bisa dibantu hari ini?</h2>
-              
-              {/* Input centered like ChatGPT */}
-              <div className="w-full max-w-2xl mb-8">
-                <form onSubmit={handleSubmit}>
-                  <div className="relative flex items-center bg-gray-800 rounded-full border border-gray-700 focus-within:border-gray-600 transition-colors px-4">
-                    <span className="text-gray-500 mr-2">+</span>
-                    <input
-                      type="text"
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      placeholder="Tanyakan apa saja..."
-                      className="flex-1 bg-transparent text-white placeholder-gray-500 py-4 focus:outline-none"
-                      disabled={isLoading}
-                    />
-                    <button
-                      type="submit"
-                      disabled={!input.trim() || isLoading}
-                      className="ml-2 p-2 rounded-full bg-white text-gray-900 hover:bg-gray-200 disabled:opacity-30 disabled:hover:bg-white transition-colors"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
-                      </svg>
-                    </button>
-                  </div>
-                </form>
+            <div className="h-full flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-700">
+              {/* TPC Logo */}
+              <div className="mb-6 rounded-2xl overflow-hidden shadow-2xl shadow-blue-500/20">
+                <img src="/logotpc.jpg" alt="TPC Logo" className="w-24 h-24 object-cover" onError={(e) => {
+                  // Fallback if image fails
+                  e.currentTarget.style.display = 'none';
+                  e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                }} />
+                <div className="hidden w-24 h-24 bg-gradient-to-tr from-blue-600 to-emerald-600 flex items-center justify-center text-white text-3xl font-bold">T</div>
               </div>
 
-              {/* Suggestion chips */}
-              <div className="flex flex-wrap justify-center gap-2 max-w-2xl">
-                {[
-                  'Tarif PPh orang pribadi',
-                  'Penghasilan Tidak Kena Pajak',
-                  'Objek pajak penghasilan',
-                  'Cara hitung PKP',
-                ].map((suggestion) => (
+              <h1 className={`text-3xl font-bold mb-3 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>TPC Artificial Intelligence</h1>
+              <p className={`max-w-md text-base mb-10 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                Asisten perpajakan pintar dengan kemampuan analisis mendalam. Siap membantu perhitungan dan peraturan pajak.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full max-w-2xl">
+                {['Bagaimana cara menghitung PPh 21?', 'Jelaskan PP 58 Tahun 2023', 'Apa objek pajak PPN?', 'Simulasi pajak karyawan'].map((text, i) => (
                   <button
-                    key={suggestion}
-                    onClick={() => setInput(suggestion)}
-                    className="px-4 py-2 text-sm text-gray-300 bg-gray-800/50 hover:bg-gray-800 rounded-full border border-gray-700 hover:border-gray-600 transition-colors"
+                    key={i}
+                    onClick={() => setInput(text)}
+                    className={`p-4 rounded-xl text-left text-sm transition-all border ${isDarkMode
+                      ? 'bg-white/5 border-white/5 hover:bg-white/10 text-gray-300'
+                      : 'bg-white border-gray-200 hover:border-blue-400 text-gray-600 shadow-sm'
+                      }`}
                   >
-                    {suggestion}
+                    {text}
                   </button>
                 ))}
               </div>
-              
-              {/* Disclaimer */}
-              <p className="mt-8 text-xs text-gray-500 text-center">
-                TPC AI dapat membuat kesalahan. Periksa informasi penting dengan sumber resmi.
-              </p>
             </div>
           ) : (
-            <div className="max-w-3xl mx-auto py-6 px-4">
+            <div className="max-w-3xl mx-auto space-y-8">
               {messages.map((message) => (
-                <div key={message.id} className="mb-6">
-                  <div className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : ''}`}>
-                    {message.role === 'assistant' && (
-                      <img 
-                        src="/logotpc.jpg" 
-                        alt="TPC AI" 
-                        className="w-8 h-8 rounded-full object-cover flex-shrink-0"
-                      />
-                    )}
-                    <div
-                      className={`flex-1 ${
-                        message.role === 'user'
-                          ? 'bg-emerald-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 max-w-[80%]'
-                          : 'max-w-[85%]'
-                      }`}
-                    >
-                      {message.role === 'assistant' ? (
-                        <div>
-                          {message.isStreaming && message.streamingStage === 'thinking' && (
-                            <div className="mb-3">
-                              <div className="flex items-center gap-2 text-amber-400 mb-2">
-                                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                <span className="text-sm font-medium">Sedang menganalisis...</span>
-                              </div>
-                              {message.thinking && (
-                                <div className="bg-amber-950/30 border border-amber-900/50 rounded-lg p-3 text-sm text-amber-200/80 font-mono whitespace-pre-wrap">
-                                  {message.thinking}
-                                  <span className="inline-block w-1 h-4 bg-amber-400 animate-pulse ml-0.5" />
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          
-                          {message.isStreaming && message.streamingStage === 'answering' && (
-                            <>
-                              {message.thinking && (
-                                <div className="mb-3">
-                                  <button
-                                    onClick={() => {
-                                      setConversations(prev => prev.map(c => ({
-                                        ...c,
-                                        messages: c.messages.map(m => 
-                                          m.id === message.id 
-                                            ? { ...m, thinkingExpanded: !m.thinkingExpanded }
-                                            : m
-                                        )
-                                      })));
-                                    }}
-                                    className="flex items-center gap-1.5 text-xs text-amber-500 hover:text-amber-400"
-                                  >
-                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                                    </svg>
-                                    Proses Analisis
-                                  </button>
-                                </div>
-                              )}
-                              <div className="text-gray-200 text-sm leading-relaxed [&_p]:my-2 [&_h1]:text-lg [&_h1]:font-bold [&_h1]:my-3 [&_h2]:text-base [&_h2]:font-semibold [&_h2]:my-2 [&_h3]:font-medium [&_h3]:my-2 [&_ul]:list-disc [&_ul]:ml-4 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:ml-4 [&_ol]:my-2 [&_li]:my-1 [&_strong]:text-emerald-400 [&_strong]:font-semibold [&_code]:bg-gray-800 [&_code]:px-1 [&_code]:rounded [&_code]:text-emerald-300 [&_blockquote]:border-l-2 [&_blockquote]:border-gray-600 [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-gray-400">
-                                <ReactMarkdown>{message.content}</ReactMarkdown>
-                                <span className="inline-block w-1 h-4 bg-emerald-400 animate-pulse ml-0.5" />
-                              </div>
-                            </>
-                          )}
-
-                          {message.isStreaming && !message.streamingStage && (
-                            <div className="flex items-center gap-2 text-gray-400">
-                              <span className="inline-block w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                              <span>Mempersiapkan...</span>
-                            </div>
-                          )}
-                          
-                          {!message.isStreaming && (
-                            <>
-                              {/* Thinking section (collapsible) */}
-                              {message.thinking && (
-                                <div className="mb-3">
-                                  <button
-                                    onClick={() => {
-                                      setConversations(prev => prev.map(c => ({
-                                        ...c,
-                                        messages: c.messages.map(m => 
-                                          m.id === message.id 
-                                            ? { ...m, thinkingExpanded: !m.thinkingExpanded }
-                                            : m
-                                        )
-                                      })));
-                                    }}
-                                    className="flex items-center gap-1.5 text-xs text-amber-500 hover:text-amber-400 transition-colors"
-                                  >
-                                    <svg 
-                                      className={`w-3 h-3 transition-transform ${message.thinkingExpanded ? 'rotate-90' : ''}`} 
-                                      fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                                    >
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                    </svg>
-                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                                    </svg>
-                                    Proses Analisis
-                                  </button>
-                                  {message.thinkingExpanded && (
-                                    <div className="mt-2 bg-amber-950/30 border border-amber-900/50 rounded-lg p-3 text-xs text-amber-200/70 font-mono whitespace-pre-wrap max-h-60 overflow-y-auto">
-                                      {message.thinking}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                              
-                              {/* Main answer */}
-                              <div className="text-gray-200 text-sm leading-relaxed [&_p]:my-2 [&_h1]:text-lg [&_h1]:font-bold [&_h1]:my-3 [&_h2]:text-base [&_h2]:font-semibold [&_h2]:my-2 [&_h3]:font-medium [&_h3]:my-2 [&_ul]:list-disc [&_ul]:ml-4 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:ml-4 [&_ol]:my-2 [&_li]:my-1 [&_strong]:text-emerald-400 [&_strong]:font-semibold [&_code]:bg-gray-800 [&_code]:px-1 [&_code]:rounded [&_code]:text-emerald-300 [&_blockquote]:border-l-2 [&_blockquote]:border-gray-600 [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-gray-400">
-                                <ReactMarkdown>{message.content}</ReactMarkdown>
-                              </div>
-                              
-                              {/* Citations */}
-                              {message.citations && message.citations.length > 0 && (
-                                <div className="mt-4 pt-3 border-t border-gray-700">
-                                  <p className="text-xs text-gray-500 mb-2">Referensi:</p>
-                                  <div className="flex flex-wrap gap-2">
-                                    {message.citations.map((citation, idx) => (
-                                      <a
-                                        key={idx}
-                                        href={`/documents/${citation.documentId}`}
-                                        className="inline-flex items-center px-2 py-1 text-xs bg-gray-800 text-emerald-400 rounded border border-gray-700 hover:bg-gray-700 hover:border-emerald-600 hover:text-emerald-300 transition-colors"
-                                      >
-                                        [{citation.label}] {citation.anchorCitation}
-                                      </a>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      ) : (
-                        <span>{message.content}</span>
-                      )}
+                <div key={message.id} className={`flex gap-4 ${message.role === 'user' ? 'justify-end' : ''} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
+                  {message.role === 'assistant' && (
+                    <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0 shadow-md">
+                      <img src="/logotpc.jpg" alt="TPC" className="w-full h-full object-cover" onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                        e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                      }} />
+                      <div className="hidden w-full h-full bg-gradient-to-tr from-blue-600 to-emerald-600 flex items-center justify-center text-white font-bold text-xs">T</div>
                     </div>
-                    {message.role === 'user' && (
-                      <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center flex-shrink-0 text-white text-sm font-bold">
-                        U
+                  )}
+
+                  <div className={`relative max-w-[85%] rounded-2xl px-6 py-4 shadow-sm ${message.role === 'user'
+                    ? isDarkMode
+                      ? 'bg-[#2b2d31] text-white rounded-tr-sm'
+                      : 'bg-blue-600 text-white rounded-tr-sm shadow-blue-200/50'
+                    : isDarkMode
+                      ? 'bg-transparent text-gray-100'
+                      : 'bg-white text-gray-800 border border-gray-100 shadow-sm'
+                    }`}>
+                    {/* Thinking Process */}
+                    {message.thinking && (
+                      <div className="mb-4">
+                        <button
+                          onClick={() => setConversations(prev => prev.map(c => ({ ...c, messages: c.messages.map(m => m.id === message.id ? { ...m, thinkingExpanded: !m.thinkingExpanded } : m) })))}
+                          className={`flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider mb-2 transition-colors ${isDarkMode ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'}`}
+                        >
+                          {message.isStreaming && message.streamingStage === 'thinking' ? (
+                            <span className="flex items-center gap-1.5 text-blue-500">
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                              Sedang Berpikir
+                            </span>
+                          ) : (
+                            <span>Proses Berpikir</span>
+                          )}
+                          <svg className={`w-3 h-3 transition-transform ${message.thinkingExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                        </button>
+
+                        {(message.thinkingExpanded || (message.isStreaming && message.streamingStage === 'thinking')) && (
+                          <div className={`text-xs font-mono p-4 rounded-lg border border-l-4 ${isDarkMode
+                            ? 'bg-black/20 border-white/5 border-l-blue-500/50 text-gray-400 whitespace-pre-wrap'
+                            : 'bg-gray-50 border-gray-200 border-l-blue-400 text-gray-600 whitespace-pre-wrap'
+                            }`}>
+                            {message.thinking}
+                            {message.isStreaming && message.streamingStage === 'thinking' && <span className="inline-block w-1.5 h-3 bg-blue-500 ml-1 animate-pulse"></span>}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Message Content with better spacing */}
+                    <div className={`prose prose-sm max-w-none leading-7 ${isDarkMode ? 'prose-invert prose-p:text-gray-200 prose-headings:text-gray-100 prose-strong:text-white' : 'prose-slate prose-p:text-gray-700'} ${isDarkMode ? '[&_p]:mb-4 [&_p:last-child]:mb-0' : '[&_p]:mb-4 [&_p:last-child]:mb-0'}`}>
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          p: ({ node, ...props }) => <p className="mb-4 last:mb-0 leading-7" {...props} />,
+                          li: ({ node, ...props }) => <li className="mb-1 leading-relaxed" {...props} />,
+                          code: ({ node, inline, className, children, ...props }: any) => {
+                            const match = /\[C(\d+)\]/.exec(String(children));
+                            if (inline && match) {
+                              return (
+                                <span className={`inline-flex items-center justify-center h-5 px-1.5 rounded text-[10px] font-bold mx-0.5 cursor-help select-none transition-colors ${isDarkMode
+                                  ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30'
+                                  : 'bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100'
+                                  }`}>
+                                  {String(children).replace('[', '').replace(']', '')}
+                                </span>
+                              );
+                            }
+                            return <code className={`${className} px-1.5 py-0.5 rounded text-sm font-mono ${isDarkMode ? 'bg-white/10 text-gray-300' : 'bg-gray-100 text-gray-800'}`} {...props}>{children}</code>;
+                          },
+                          table: ({ node, ...props }) => <div className="overflow-x-auto my-4 rounded-lg border border-gray-200 dark:border-white/10"><table className="min-w-full divide-y divide-gray-200 dark:divide-white/10" {...props} /></div>,
+                          thead: ({ node, ...props }) => <thead className="bg-gray-50 dark:bg-white/5" {...props} />,
+                          th: ({ node, ...props }) => <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" {...props} />,
+                          tbody: ({ node, ...props }) => <tbody className="divide-y divide-gray-200 dark:divide-white/10" {...props} />,
+                          tr: ({ node, ...props }) => <tr className="hover:bg-gray-50/50 dark:hover:bg-white/5 transition-colors" {...props} />,
+                          td: ({ node, ...props }) => <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap" {...props} />,
+                        }}
+                      >
+                        {message.content.replace(/\[C(\d+)\]/g, ' `[C$1]` ')}
+                      </ReactMarkdown>
+                    </div>
+
+                    {/* Citations Button */}
+                    {message.citations && message.citations.length > 0 && (
+                      <div className={`mt-4 pt-3 border-t ${isDarkMode ? 'border-white/10' : 'border-gray-100'}`}>
+                        <button
+                          onClick={() => setConversations(prev => prev.map(c => ({ ...c, messages: c.messages.map(m => m.id === message.id ? { ...m, citationsExpanded: !m.citationsExpanded } : m) })))}
+                          className={`flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-lg transition-colors ${isDarkMode ? 'bg-white/5 text-gray-300 hover:bg-white/10' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+                          {message.citations.length} Referensi
+                          <svg className={`w-3 h-3 ml-auto transition-transform ${message.citationsExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                        </button>
+
+                        {message.citationsExpanded && (
+                          <div className="mt-3 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                            {message.citations.map((cit, idx) => (
+                              <div key={idx} className={`p-3 rounded-lg text-xs border ${isDarkMode ? 'bg-black/20 border-white/5 text-gray-400' : 'bg-white border-gray-200 text-gray-600'}`}>
+                                <div className="font-semibold mb-1 text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}">{cit.jenis} {cit.nomor} {cit.tahun ? `Tahun ${cit.tahun}` : ''}</div>
+                                <div className="line-clamp-2 opacity-80">{cit.anchorCitation}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
                 </div>
               ))}
-              <div ref={messagesEndRef} />
+              <div ref={messagesEndRef} className="h-4" />
             </div>
           )}
-        </main>
+        </div>
 
-        {/* Input Area - only show when there are messages */}
-        {messages.length > 0 && (
-        <footer className="border-t border-gray-800 bg-gray-900 p-4">
-          <form onSubmit={handleSubmit} className="max-w-3xl mx-auto">
-            <div className="relative flex items-end bg-gray-800 rounded-xl border border-gray-700 focus-within:border-emerald-500 transition-colors">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Tanyakan tentang perpajakan..."
-                rows={1}
-                className="flex-1 bg-transparent text-white placeholder-gray-500 px-4 py-3 resize-none focus:outline-none max-h-[200px]"
-                disabled={isLoading}
-              />
+        {/* --- Input Area --- */}
+        <div className="p-4 relative z-20">
+          <div className="max-w-3xl mx-auto">
+            <form
+              onSubmit={handleSubmit}
+              className={`relative flex items-end gap-2 p-1.5 rounded-[2rem] border shadow-lg backdrop-blur-xl transition-all ${isDarkMode
+                ? 'bg-[#16181d]/90 border-white/10 focus-within:border-blue-500/50'
+                : 'bg-white border-gray-200 focus-within:border-blue-400 focus-within:shadow-md'
+                }`}
+            >
+              <div className="pl-3 pb-2">
+                {/* Thinking Toggle Dropdown */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setThinkingDropdownOpen(!thinkingDropdownOpen)}
+                    className={`p-2 rounded-full transition-colors ${enableThinking ? 'text-blue-500 bg-blue-500/10' : 'text-gray-400 hover:text-gray-600'}`}
+                    title="Mode Berpikir"
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                  </button>
+
+                  {thinkingDropdownOpen && (
+                    <>
+                      <div className="fixed inset-0 z-30" onClick={() => setThinkingDropdownOpen(false)}></div>
+                      <div className={`absolute bottom-full left-0 mb-2 w-48 p-1 rounded-xl border shadow-xl backdrop-blur-xl z-40 ${isDarkMode ? 'bg-[#1e2025] border-white/10' : 'bg-white border-gray-200'}`}>
+                        <button
+                          type="button"
+                          onClick={() => { setEnableThinking(true); setThinkingDropdownOpen(false); }}
+                          className={`w-full flex items-center gap-2 p-2 rounded-lg text-sm ${enableThinking ? (isDarkMode ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-50 text-blue-600') : (isDarkMode ? 'text-gray-400 hover:bg-white/5' : 'text-gray-600 hover:bg-gray-50')}`}
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span> Thinking Mode
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setEnableThinking(false); setThinkingDropdownOpen(false); }}
+                          className={`w-full flex items-center gap-2 p-2 rounded-lg text-sm ${!enableThinking ? (isDarkMode ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-900') : (isDarkMode ? 'text-gray-400 hover:bg-white/5' : 'text-gray-600 hover:bg-gray-50')}`}
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-gray-400"></span> Standard Mode
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-[44px] flex items-center mb-1">
+                <textarea
+                  ref={inputRef}
+                  rows={1}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Ketik pertanyaan pajak Anda..."
+                  className={`w-full bg-transparent border-none focus:ring-0 outline-none resize-none max-h-[200px] py-2 text-sm ${isDarkMode ? 'text-white placeholder-gray-500' : 'text-gray-800 placeholder-gray-400'}`}
+                  disabled={isLoading}
+                />
+              </div>
+
               <button
                 type="submit"
                 disabled={!input.trim() || isLoading}
-                className="m-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium rounded-lg transition-colors"
+                className={`p-2.5 m-1 rounded-full transition-all duration-300 ${input.trim() && !isLoading
+                  ? 'bg-blue-600 text-white hover:bg-blue-500'
+                  : isDarkMode ? 'bg-white/5 text-gray-600 cursor-not-allowed' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  }`}
               >
-                {isLoading ? 'Mengirim...' : 'Kirim'}
+                {isLoading ? (
+                  <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                ) : (
+                  <svg className="w-5 h-5 transform rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                )}
               </button>
+            </form>
+            <div className={`text-center mt-3 text-[10px] ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}>
+              Owlie dapat membuat kesalahan. Cek kembali informasi penting.
             </div>
-            <div className="flex items-center justify-between mt-2 px-1">
-              <button
-                type="button"
-                onClick={() => setEnableThinking(!enableThinking)}
-                className={`flex items-center gap-1.5 text-xs transition-colors ${
-                  enableThinking 
-                    ? 'text-amber-400 hover:text-amber-300' 
-                    : 'text-gray-500 hover:text-gray-400'
-                }`}
-              >
-                <div className={`relative w-8 h-4 rounded-full transition-colors ${
-                  enableThinking ? 'bg-amber-600' : 'bg-gray-700'
-                }`}>
-                  <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${
-                    enableThinking ? 'translate-x-4' : 'translate-x-0.5'
-                  }`} />
-                </div>
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                </svg>
-                <span>Thinking Mode</span>
-              </button>
-              <p className="text-xs text-gray-600">
-                TPC AI dapat membuat kesalahan. Periksa informasi penting.
-              </p>
-            </div>
-          </form>
-        </footer>
-        )}
-      </div>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }
-

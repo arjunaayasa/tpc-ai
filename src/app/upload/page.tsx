@@ -4,8 +4,11 @@ import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+type DocumentType = 'PERATURAN' | 'PUTUSAN' | 'BUKU';
+
 export default function UploadPage() {
     const [file, setFile] = useState<File | null>(null);
+    const [docType, setDocType] = useState<DocumentType>('PERATURAN');
     const [uploading, setUploading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [dragActive, setDragActive] = useState(false);
@@ -68,6 +71,7 @@ export default function UploadPage() {
         try {
             const formData = new FormData();
             formData.append('file', file);
+            formData.append('docType', docType);
 
             const response = await fetch('/api/upload', {
                 method: 'POST',
@@ -123,6 +127,51 @@ export default function UploadPage() {
                 </p>
 
                 <form onSubmit={handleSubmit}>
+                    {/* Document Type Selector */}
+                    <div className="mb-6">
+                        <label className="block text-sm font-medium text-neutral-300 mb-2">
+                            Jenis Dokumen
+                        </label>
+                        <div className="flex gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setDocType('PERATURAN')}
+                                className={`flex-1 py-3 px-4 rounded-lg border transition-colors ${
+                                    docType === 'PERATURAN'
+                                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400'
+                                        : 'border-neutral-700 text-neutral-400 hover:border-neutral-500'
+                                }`}
+                            >
+                                <div className="font-medium">Peraturan</div>
+                                <div className="text-xs opacity-70 mt-1">UU, PP, PMK, PER, SE</div>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setDocType('PUTUSAN')}
+                                className={`flex-1 py-3 px-4 rounded-lg border transition-colors ${
+                                    docType === 'PUTUSAN'
+                                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400'
+                                        : 'border-neutral-700 text-neutral-400 hover:border-neutral-500'
+                                }`}
+                            >
+                                <div className="font-medium">Putusan</div>
+                                <div className="text-xs opacity-70 mt-1">Putusan Pengadilan Pajak</div>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setDocType('BUKU')}
+                                className={`flex-1 py-3 px-4 rounded-lg border transition-colors ${
+                                    docType === 'BUKU'
+                                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400'
+                                        : 'border-neutral-700 text-neutral-400 hover:border-neutral-500'
+                                }`}
+                            >
+                                <div className="font-medium">Buku</div>
+                                <div className="text-xs opacity-70 mt-1">Buku Perpajakan</div>
+                            </button>
+                        </div>
+                    </div>
+
                     {/* Drop Zone */}
                     <div
                         className={`
