@@ -542,12 +542,12 @@ export default function ChatPage() {
                             }
                             return <code className={`${className} px-1.5 py-0.5 rounded text-sm font-mono ${isDarkMode ? 'bg-white/10 text-gray-300' : 'bg-gray-100 text-gray-800'}`} {...props}>{children}</code>;
                           },
-                          table: ({ node, ...props }) => <div className="overflow-x-auto my-4 rounded-lg border border-gray-200 dark:border-white/10"><table className="min-w-full divide-y divide-gray-200 dark:divide-white/10" {...props} /></div>,
-                          thead: ({ node, ...props }) => <thead className="bg-gray-50 dark:bg-white/5" {...props} />,
-                          th: ({ node, ...props }) => <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" {...props} />,
-                          tbody: ({ node, ...props }) => <tbody className="divide-y divide-gray-200 dark:divide-white/10" {...props} />,
-                          tr: ({ node, ...props }) => <tr className="hover:bg-gray-50/50 dark:hover:bg-white/5 transition-colors" {...props} />,
-                          td: ({ node, ...props }) => <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap" {...props} />,
+                          table: ({ node, ...props }) => <div className={`overflow-x-auto my-4 rounded-lg border ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}><table className={`min-w-full divide-y ${isDarkMode ? 'divide-white/10' : 'divide-gray-200'}`} {...props} /></div>,
+                          thead: ({ node, ...props }) => <thead className={isDarkMode ? 'bg-white/5' : 'bg-gray-50'} {...props} />,
+                          th: ({ node, ...props }) => <th className={`px-3 py-2 text-left text-xs font-bold uppercase tracking-wider ${isDarkMode ? 'text-gray-200' : 'text-gray-600'}`} {...props} />,
+                          tbody: ({ node, ...props }) => <tbody className={`divide-y ${isDarkMode ? 'divide-white/10' : 'divide-gray-200'}`} {...props} />,
+                          tr: ({ node, ...props }) => <tr className={`transition-colors ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-gray-50/50'}`} {...props} />,
+                          td: ({ node, ...props }) => <td className={`px-3 py-2 text-sm whitespace-pre-wrap ${isDarkMode ? 'text-gray-100' : 'text-gray-700'}`} {...props} />,
                         }}
                       >
                         {message.content.replace(/\[C(\d+)\]/g, ' `[C$1]` ')}
