@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { metadataUpdateSchema } from '@/lib/validation';
+import { getExtractionQueue } from '@/lib/queue';
 
 export const runtime = 'nodejs';
 
@@ -37,6 +38,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         }
 
         const data = validationResult.data;
+
+        // Check if jenis is being changed (for auto re-extraction)
+        const previousJenis = document.metadata?.jenis;
+        const newJenis = data.jenis;
+        const jenisChanged = newJenis !== undefined && newJenis !== previousJenis;
 
         // Prepare update data
         const updateData: Record<string, unknown> = {
@@ -84,10 +90,33 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
             });
         }
 
+        // If jenis was changed and reExtract is requested, trigger re-extraction
+        let reExtractionQueued = false;
+        if (jenisChanged && data.reExtract !== false) {
+            // Set document to processing
+            await prisma.document.update({
+                where: { id },
+                data: { status: 'processing', lastError: null },
+            });
+
+            // Queue extraction job with forced type
+            const queue = getExtractionQueue();
+            await queue.add('extract_metadata', {
+                documentId: id,
+                forceType: newJenis,
+            }, {
+                jobId: `extract-${id}-${Date.now()}`,
+            });
+
+            reExtractionQueued = true;
+            console.log(`[Metadata] Type changed from ${previousJenis} to ${newJenis}, re-extraction queued`);
+        }
+
         return NextResponse.json({
             success: true,
             metadata,
-            documentStatus: data.approve ? 'approved' : document.status,
+            documentStatus: data.approve ? 'approved' : (reExtractionQueued ? 'processing' : document.status),
+            reExtractionQueued,
         });
     } catch (error) {
         console.error('Metadata update error:', error);

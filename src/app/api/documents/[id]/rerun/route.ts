@@ -12,6 +12,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     try {
         const { id } = await params;
 
+        // Parse optional request body for forceType
+        let forceType: string | undefined;
+        try {
+            const body = await request.json();
+            forceType = body.forceType;
+        } catch {
+            // No body is fine, forceType stays undefined
+        }
+
         // Validate document exists
         const document = await prisma.document.findUnique({
             where: { id },
@@ -33,15 +42,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             },
         });
 
-        // Enqueue extraction job
+        // Enqueue extraction job with optional forceType
         const queue = getExtractionQueue();
-        await queue.add('extract_metadata', { documentId: id }, {
+        await queue.add('extract_metadata', {
+            documentId: id,
+            forceType: forceType || undefined, // Pass forced type to worker
+        }, {
             jobId: `extract-${id}-${Date.now()}`,
         });
 
         return NextResponse.json({
             success: true,
-            message: 'Re-extraction job queued',
+            message: forceType
+                ? `Re-extraction job queued with forced type: ${forceType}`
+                : 'Re-extraction job queued',
         });
     } catch (error) {
         console.error('Re-run extraction error:', error);

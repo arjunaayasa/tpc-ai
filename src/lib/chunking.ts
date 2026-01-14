@@ -66,7 +66,7 @@ function parseAyatInPasal(
 
     // Handle text before first Ayat (Pasal header)
     const headerText = pasalText.substring(0, ayatMatches[0].index).trim();
-    
+
     // Extract each Ayat section
     for (let i = 0; i < ayatMatches.length; i++) {
         const currentAyat = ayatMatches[i];
@@ -114,7 +114,7 @@ export function chunkByPasal(fullText: string, meta?: DocumentMeta): ChunkData[]
     // 2. NOT preceded by words like "dalam", "pada", "sebagaimana", "dimaksud", etc.
     // 3. The line should be relatively short (just "Pasal X" or "Pasal X\n")
     // We use negative lookbehind to exclude references
-    
+
     // First pass: find all potential Pasal positions
     // Support: Pasal 1, Pasal 13A, Pasal 14B, etc.
     const potentialPasalRegex = /\n\s*Pasal\s+(\d+[A-Z]?)\b/gi;
@@ -127,16 +127,16 @@ export function chunkByPasal(fullText: string, meta?: DocumentMeta): ChunkData[]
     while ((match = potentialPasalRegex.exec(normalizedText)) !== null) {
         const pasalNum = match[1].toUpperCase(); // Normalize: 13a -> 13A
         const matchIndex = match.index;
-        
+
         // Check context before the match to see if it's a reference
         // Look at the 50 characters before this match
         const contextStart = Math.max(0, matchIndex - 50);
         const contextBefore = normalizedText.substring(contextStart, matchIndex).toLowerCase();
-        
+
         // Words that indicate this is a reference, not a header
         const referenceIndicators = [
             'dalam pasal',
-            'pada pasal', 
+            'pada pasal',
             'sebagaimana dimaksud',
             'dimaksud dalam',
             'dimaksud pada',
@@ -149,17 +149,43 @@ export function chunkByPasal(fullText: string, meta?: DocumentMeta): ChunkData[]
             'sampai dengan pasal',
             'huruf'  // like "huruf a Pasal 28"
         ];
-        
-        const isReference = referenceIndicators.some(indicator => 
+
+        const isReference = referenceIndicators.some(indicator =>
             contextBefore.includes(indicator)
         );
-        
+
         // Also check: a header Pasal should be followed by newline or ayat (1)
         // Look at what follows
-        const afterMatch = normalizedText.substring(match.index + match[0].length, match.index + match[0].length + 30);
-        const looksLikeHeader = /^\s*(\n|\(1\)|$)/i.test(afterMatch);
-        
-        if (!isReference || looksLikeHeader) {
+        const afterMatch = normalizedText.substring(match.index + match[0].length, match.index + match[0].length + 50);
+
+        // Check if this looks like a header:
+        // 1. Followed by newline then ayat (1) or just newline with next content
+        // 2. NOT followed by "/" (like "Pasal 21/26") - this is a reference pattern
+        // 3. NOT followed by "atas", "untuk", "kepada", etc. - inline sentence continuation
+        const hasSlashAfter = /^[\/\-]/.test(afterMatch.trim());
+        const hasContinuationWord = /^\\s*(atas|sampai)\\b/i.test(afterMatch);
+        const looksLikeHeader = /^\s*(\n\s*([\n\(]|[A-Z])|$)/i.test(afterMatch) && !hasSlashAfter && !hasContinuationWord;
+
+        // More reference patterns that indicate this is NOT a header
+        const moreReferencePatterns = [
+            'pasal',  // "Pasal X Pasal Y" is reference
+            'ayat',   // Check if preceded by ayat reference  
+            'angka',
+            'uu',
+            'pp',
+            'pmk',
+            'per',
+            'pph',    // PPh Pasal 21/26 is a tax type reference
+        ];
+
+        const isMoreReference = moreReferencePatterns.some(pattern =>
+            contextBefore.trim().endsWith(pattern)
+        );
+
+        // Only accept if:
+        // 1. Not a reference AND 
+        // 2. Looks like a proper header (followed by newline, not slash/continuation)
+        if (!isReference && !isMoreReference && looksLikeHeader) {
             if (!seenPasals.has(pasalNum)) {
                 seenPasals.add(pasalNum);
                 matches.push({

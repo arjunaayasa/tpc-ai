@@ -7,12 +7,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { retrieve, RetrievalFilters } from '@/lib/retrieval';
 import { chat, checkOllamaHealth } from '@/lib/ollama';
-import { 
-    buildRAGMessages, 
-    extractCitationsFromAnswer, 
+import {
+    buildRAGMessages,
+    extractCitationsFromAnswer,
     buildCitationList,
-    AnswerMode 
+    AnswerMode
 } from '@/lib/prompt';
+import { getTaxRateContextForQuestion } from '@/lib/tax/taxRateContext';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // 2 minutes for LLM response
@@ -74,9 +75,9 @@ export async function POST(request: NextRequest) {
 
         if (!parseResult.success) {
             return NextResponse.json(
-                { 
-                    error: 'Invalid request', 
-                    details: parseResult.error.flatten() 
+                {
+                    error: 'Invalid request',
+                    details: parseResult.error.flatten()
                 },
                 { status: 400 }
             );
@@ -92,13 +93,13 @@ export async function POST(request: NextRequest) {
             /^(bye|dadah|sampai\s*jumpa)/i,
             /^(tolong|bantu|help)$/i,
         ];
-        
+
         const isConversational = conversationalPatterns.some(pattern => pattern.test(question.trim()));
-        
+
         if (isConversational) {
             // Use AI for conversational response (no RAG context needed)
             console.log('[RAG] Conversational message detected, using AI without RAG');
-            
+
             const conversationalMessages = [
                 {
                     role: 'system' as const,
@@ -122,12 +123,12 @@ Respon dalam bahasa Indonesia yang natural dan conversational.`,
                     content: question,
                 },
             ];
-            
-            const answer = await chat(conversationalMessages, { 
+
+            const answer = await chat(conversationalMessages, {
                 maxTokens: 500,  // Short response for casual chat
-                enableThinking: false 
+                enableThinking: false
             });
-            
+
             return NextResponse.json({
                 answer,
                 citations: [],
@@ -147,9 +148,9 @@ Respon dalam bahasa Indonesia yang natural dan conversational.`,
         const ollamaHealth = await checkOllamaHealth();
         if (!ollamaHealth.available) {
             return NextResponse.json(
-                { 
-                    error: 'LLM service unavailable', 
-                    details: ollamaHealth.error 
+                {
+                    error: 'LLM service unavailable',
+                    details: ollamaHealth.error
                 },
                 { status: 503 }
             );
@@ -157,7 +158,7 @@ Respon dalam bahasa Indonesia yang natural dan conversational.`,
 
         // 3. Retrieve relevant chunks
         console.log(`[RAG] Processing question: "${question.substring(0, 50)}..."`);
-        
+
         const retrievalFilters: RetrievalFilters | undefined = filters ? {
             jenis: filters.jenis as RetrievalFilters['jenis'],
             nomor: filters.nomor,
@@ -185,13 +186,25 @@ Respon dalam bahasa Indonesia yang natural dan conversational.`,
         }
 
         // 4. Build RAG messages
-        const { messages, labeledChunks } = buildRAGMessages(question, chunks, mode);
+        // First, fetch tax rate context if question is tariff-related
+        let taxRateContext = '';
+        try {
+            const taxRateResult = await getTaxRateContextForQuestion(question);
+            if (taxRateResult.needed && taxRateResult.items.length > 0) {
+                taxRateContext = taxRateResult.context;
+                console.log(`[RAG] Tax rate context injected: ${taxRateResult.items.length} rates`);
+            }
+        } catch (taxRateError) {
+            console.warn('[RAG] Tax rate fetch failed:', taxRateError);
+        }
+
+        const { messages, labeledChunks } = buildRAGMessages(question, chunks, mode, taxRateContext);
 
         // 5. Call LLM
         // Note: Thinking step disabled for now as it doubles response time
         // Can be re-enabled later with streaming support for better UX
         console.log(`[RAG] Calling LLM with ${chunks.length} chunks...`);
-        const answer = await chat(messages, { 
+        const answer = await chat(messages, {
             enableThinking: false,  // Disabled - too slow without streaming
             maxTokens: 8192  // High ceiling, model stops naturally
         });
@@ -227,11 +240,11 @@ Respon dalam bahasa Indonesia yang natural dan conversational.`,
 
     } catch (error) {
         console.error('[RAG] Error:', error);
-        
+
         return NextResponse.json(
-            { 
-                error: 'Internal server error', 
-                details: (error as Error).message 
+            {
+                error: 'Internal server error',
+                details: (error as Error).message
             },
             { status: 500 }
         );
@@ -241,7 +254,7 @@ Respon dalam bahasa Indonesia yang natural dan conversational.`,
 // Health check endpoint
 export async function GET() {
     const ollamaHealth = await checkOllamaHealth();
-    
+
     return NextResponse.json({
         status: ollamaHealth.available ? 'healthy' : 'degraded',
         ollama: ollamaHealth,

@@ -26,6 +26,7 @@ interface Citation {
   jenis: string;
   nomor: string | null;
   tahun: number | null;
+  judul: string | null;
 }
 
 interface ChunkUsed {
@@ -124,6 +125,11 @@ export default function ChatPage() {
         console.error('Failed to load conversations:', e);
       }
     }
+
+    // Close sidebar on mobile by default
+    if (window.innerWidth < 768) {
+      setSidebarOpen(false);
+    }
   }, []);
 
   useEffect(() => localStorage.setItem('tpc-ai-theme', isDarkMode ? 'dark' : 'light'), [isDarkMode]);
@@ -212,7 +218,7 @@ export default function ChatPage() {
         body: JSON.stringify({
           question: userMessage.content,
           history: currentConv ? currentConv.messages.map(m => ({ role: m.role, content: m.content })) : [],
-          topK: 10,
+          topK: 50,
           mode: 'strict',
           enableThinking,
           model: selectedModel,
@@ -239,11 +245,14 @@ export default function ChatPage() {
 
         for (const line of lines) {
           if (!line.startsWith('event:')) continue;
-          const [, eventType, dataStr] = line.match(/^event: (\w+)\ndata: ([\s\S]+)$/) || [];
-          if (!eventType) continue;
+          const match = line.match(/^event: (\w+)\ndata: ([\s\S]+)$/);
+          console.log('[SSE Debug] Line:', line.slice(0, 100), '| Match:', !!match);
+          if (!match) continue;
+          const [, eventType, dataStr] = match;
 
           try {
             const data = JSON.parse(dataStr);
+            console.log('[SSE Debug] Event:', eventType, '| Data:', JSON.stringify(data).slice(0, 100));
             setConversations((prev) => prev.map((c) => {
               if (c.id !== conversationId) return c;
               const updateMessage = (updater: (msg: Message) => Message) => ({ ...c, messages: c.messages.map(msg => msg.id === assistantId ? updater(msg) : msg) });
@@ -309,6 +318,14 @@ export default function ChatPage() {
         <div className={`absolute bottom-[-10%] right-[-10%] w-[50vw] h-[50vh] rounded-full blur-[120px] opacity-20 transition-colors duration-1000 ${isDarkMode ? 'bg-emerald-900' : 'bg-emerald-200'}`}></div>
       </div>
 
+      {/* --- Mobile Overlay (tap to close sidebar) --- */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-20 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* --- Sidebar (ChatGPT Style) --- */}
       <aside
         className={`${sidebarOpen ? 'w-[260px] translate-x-0' : 'w-0 -translate-x-full'} fixed md:relative z-30 h-full transition-all duration-300 ease-in-out flex-shrink-0 overflow-hidden`}
@@ -348,7 +365,7 @@ export default function ChatPage() {
               conversations.map((conv) => (
                 <div
                   key={conv.id}
-                  onClick={() => setActiveConversationId(conv.id)}
+                  onClick={() => { setActiveConversationId(conv.id); if (window.innerWidth < 768) setSidebarOpen(false); }}
                   className={`group relative px-3 py-2.5 rounded-lg cursor-pointer transition-colors text-sm ${activeConversationId === conv.id
                     ? isDarkMode ? 'bg-[#2b2d31] text-white' : 'bg-gray-200 text-gray-900'
                     : isDarkMode ? 'text-gray-300 hover:bg-[#202123]' : 'text-gray-600 hover:bg-gray-100'
@@ -524,7 +541,17 @@ export default function ChatPage() {
                             <div className="flex items-center gap-2 mb-2 border-b border-white/10 pb-2 text-[10px] opacity-70">
                               <span>$ thinking_process.sh</span>
                             </div>
-                            {message.thinking}
+                            <div className={`whitespace-pre-wrap ${message.isStreaming && message.streamingStage === 'thinking' ? 'animate-pulse' : ''}`} style={{
+                              background: message.isStreaming && message.streamingStage === 'thinking'
+                                ? 'linear-gradient(90deg, currentColor 0%, rgba(100,150,255,0.7) 50%, currentColor 100%)'
+                                : 'none',
+                              backgroundSize: '200% 100%',
+                              WebkitBackgroundClip: message.isStreaming && message.streamingStage === 'thinking' ? 'text' : 'unset',
+                              WebkitTextFillColor: message.isStreaming && message.streamingStage === 'thinking' ? 'transparent' : 'unset',
+                              animation: message.isStreaming && message.streamingStage === 'thinking' ? 'shimmer 2s linear infinite' : 'none',
+                            }}>
+                              {message.thinking}
+                            </div>
                             {message.isStreaming && message.streamingStage === 'thinking' && <span className="inline-block w-1.5 h-3 bg-blue-500 ml-1 animate-pulse"></span>}
                           </div>
                         )}
@@ -564,11 +591,11 @@ export default function ChatPage() {
                       </ReactMarkdown>
 
                       {/* Typing Indicator */}
-                      {message.role === 'assistant' && message.isStreaming && !message.content && (!message.thinking || message.streamingStage === 'answering') && (
-                        <div className="flex gap-1.5 items-center py-2 px-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-[bounce_1s_infinite_-0.3s]"></span>
-                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-[bounce_1s_infinite_-0.15s]"></span>
-                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-[bounce_1s_infinite]"></span>
+                      {message.role === 'assistant' && message.isStreaming && !message.content && (
+                        <div className="flex gap-2 items-center py-3 px-2">
+                          <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                          <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+                          <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" style={{ animationDelay: '0.4s' }}></div>
                         </div>
                       )}
                     </div>
@@ -589,7 +616,12 @@ export default function ChatPage() {
                           <div className="mt-3 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
                             {message.citations.map((cit, idx) => (
                               <div key={idx} className={`p-3 rounded-lg text-xs border ${isDarkMode ? 'bg-black/20 border-white/5 text-gray-400' : 'bg-white border-gray-200 text-gray-600'}`}>
-                                <div className="font-semibold mb-1 text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}">{cit.jenis} {cit.nomor} {cit.tahun ? `Tahun ${cit.tahun}` : ''}</div>
+                                <div className={`font-semibold mb-1 text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                                  {cit.jenis === 'BUKU' && cit.judul
+                                    ? `${cit.judul}${cit.tahun ? ` (${cit.tahun})` : ''}`
+                                    : `${cit.jenis}${cit.nomor ? ` ${cit.nomor}` : ''}${cit.tahun ? ` Tahun ${cit.tahun}` : ''}`
+                                  }
+                                </div>
                                 <div className="line-clamp-2 opacity-80">{cit.anchorCitation}</div>
                               </div>
                             ))}

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import PutusanView from './PutusanView';
 import { Pencil, Trash2, Check, PlayCircle, RotateCcw } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
 interface Document {
     id: string;
@@ -71,7 +72,7 @@ interface DocumentTable {
     orderIndex: number;
 }
 
-const jenisOptions = ['UU', 'PP', 'PMK', 'PER', 'SE', 'KEP', 'PUTUSAN', 'BUKU', 'UNKNOWN'];
+const jenisOptions = ['UU', 'PERPU', 'PP', 'PMK', 'PER', 'SE', 'KEP', 'NOTA_DINAS', 'PUTUSAN', 'BUKU', 'UNKNOWN'];
 const statusAturanOptions = ['berlaku', 'diubah', 'dicabut', 'unknown'];
 
 export default function DocumentDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -98,6 +99,16 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
     const [editingChunk, setEditingChunk] = useState<Chunk | null>(null);
     const [editText, setEditText] = useState('');
     const [editTitle, setEditTitle] = useState('');
+
+    // Add chunk modal state
+    const [showAddChunkModal, setShowAddChunkModal] = useState(false);
+    const [newChunkTitle, setNewChunkTitle] = useState('');
+    const [newChunkText, setNewChunkText] = useState('');
+    const [newChunkType, setNewChunkType] = useState('SECTION');
+    const [addingChunk, setAddingChunk] = useState(false);
+
+    // Selected chunk for split view
+    const [selectedChunk, setSelectedChunk] = useState<Chunk | null>(null);
 
     const [formData, setFormData] = useState({
         jenis: 'UNKNOWN',
@@ -163,7 +174,7 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
     const fetchChunks = async () => {
         if (!documentId) return;
         try {
-            const response = await fetch(`/api/documents/${documentId}/chunks?limit=500`);
+            const response = await fetch(`/api/documents/${documentId}/chunks?limit=10000`);
             if (response.ok) {
                 const data = await response.json();
                 setChunks(data.chunks || []);
@@ -334,6 +345,40 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
         }
     };
 
+    const handleAddChunk = async () => {
+        if (!documentId || !newChunkText.trim()) return;
+        setAddingChunk(true);
+        setError(null);
+
+        try {
+            const response = await fetch(`/api/documents/${documentId}/chunks`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: newChunkTitle || null,
+                    text: newChunkText.trim(),
+                    chunkType: newChunkType,
+                }),
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to add chunk');
+            }
+
+            setSuccess('Chunk added successfully');
+            setShowAddChunkModal(false);
+            setNewChunkTitle('');
+            setNewChunkText('');
+            setNewChunkType('SECTION');
+            fetchChunks();
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setAddingChunk(false);
+        }
+    };
+
     const handleDeleteDocument = async () => {
         if (!documentId) return;
         if (!confirm('Are you sure you want to delete this document? This action cannot be undone.')) return;
@@ -490,6 +535,71 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                                 className="px-4 py-2 bg-white text-black rounded text-sm font-medium hover:bg-neutral-200"
                             >
                                 Save
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Add Chunk Modal */}
+            {showAddChunkModal && (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+                    <div className="bg-neutral-900 border border-neutral-700 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+                        <h3 className="text-lg font-semibold mb-4">Add New Chunk</h3>
+                        <div className="mb-4">
+                            <label className="block text-neutral-500 text-sm mb-1">Title (optional)</label>
+                            <input
+                                type="text"
+                                value={newChunkTitle}
+                                onChange={(e) => setNewChunkTitle(e.target.value)}
+                                placeholder="e.g., Pasal 1, Section A, etc."
+                                className="w-full bg-black border border-neutral-700 rounded px-3 py-2 text-white placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
+                            />
+                        </div>
+                        <div className="mb-4">
+                            <label className="block text-neutral-500 text-sm mb-1">Chunk Type</label>
+                            <select
+                                value={newChunkType}
+                                onChange={(e) => setNewChunkType(e.target.value)}
+                                className="w-full bg-black border border-neutral-700 rounded px-3 py-2 text-white focus:outline-none focus:border-neutral-500"
+                            >
+                                <option value="SECTION">SECTION</option>
+                                <option value="PASAL">PASAL</option>
+                                <option value="AYAT">AYAT</option>
+                                <option value="PREAMBLE">PREAMBLE</option>
+                                <option value="LAMPIRAN">LAMPIRAN</option>
+                                <option value="ND_ISI_ITEM">ND_ISI_ITEM</option>
+                                <option value="ND_PEMBUKA">ND_PEMBUKA</option>
+                            </select>
+                        </div>
+                        <div className="mb-4">
+                            <label className="block text-neutral-500 text-sm mb-1">Text Content *</label>
+                            <textarea
+                                value={newChunkText}
+                                onChange={(e) => setNewChunkText(e.target.value)}
+                                rows={10}
+                                placeholder="Enter the chunk text content..."
+                                className="w-full bg-black border border-neutral-700 rounded px-3 py-2 text-white placeholder-neutral-600 focus:outline-none focus:border-neutral-500 font-mono text-sm"
+                            />
+                        </div>
+                        <div className="flex gap-3 justify-end">
+                            <button
+                                onClick={() => {
+                                    setShowAddChunkModal(false);
+                                    setNewChunkTitle('');
+                                    setNewChunkText('');
+                                    setNewChunkType('SECTION');
+                                }}
+                                className="px-4 py-2 border border-neutral-700 rounded text-sm hover:border-neutral-500"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleAddChunk}
+                                disabled={addingChunk || !newChunkText.trim()}
+                                className="px-4 py-2 bg-emerald-600 text-white rounded text-sm font-medium hover:bg-emerald-500 disabled:opacity-50"
+                            >
+                                {addingChunk ? 'Adding...' : 'Add Chunk'}
                             </button>
                         </div>
                     </div>
@@ -782,82 +892,195 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                                 isEditable={document.status !== 'approved'}
                             />
                         ) : (
-                            <div className="border border-neutral-800 rounded-lg">
+                            <div className="border border-neutral-800 rounded-lg h-[70vh] flex">
                                 {chunks.length === 0 ? (
-                                    <div className="p-8 text-center text-neutral-500">
+                                    <div className="flex-1 flex items-center justify-center text-neutral-500">
                                         No content chunks extracted yet.
                                         {document.status === 'processing' && ' Processing...'}
                                     </div>
                                 ) : (
-                                    <div className="divide-y divide-neutral-800">
-                                        {groupedChunks.map((group) => {
-                                            const groupKey = group.pasal ?? group.anchorCitation;
-                                            const isExpanded = expandedPasals.has(groupKey);
-                                            const hasMultipleItems = group.items.length > 1;
-
-                                            return (
-                                                <div key={groupKey} className="p-4">
+                                    <>
+                                        {/* Left Sidebar - Hierarchical Chunk Tree */}
+                                        <div className="w-72 border-r border-neutral-800 overflow-y-auto">
+                                            <div className="p-2 border-b border-neutral-800 bg-neutral-900 sticky top-0 flex items-center justify-between">
+                                                <span className="text-sm text-neutral-400">{chunks.length} chunks</span>
+                                                {document.status !== 'approved' && (
                                                     <button
-                                                        onClick={() => toggleChunk(groupKey)}
-                                                        className="w-full flex justify-between items-center text-left"
+                                                        onClick={() => setShowAddChunkModal(true)}
+                                                        className="px-2 py-1 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-500 transition-colors"
                                                     >
-                                                        <div>
-                                                            <span className="font-medium">
-                                                                {group.pasal ? `Pasal ${group.pasal}` : group.anchorCitation}
-                                                            </span>
-                                                            <span className="text-neutral-500 text-sm ml-3">
-                                                                ~{group.totalTokens} tokens
-                                                                {hasMultipleItems && (
-                                                                    <span className="ml-2 text-neutral-600">
-                                                                        ({group.items.length} items)
-                                                                    </span>
-                                                                )}
-                                                            </span>
-                                                        </div>
-                                                        <span className="text-neutral-500">
-                                                            {isExpanded ? '−' : '+'}
-                                                        </span>
+                                                        + Add
                                                     </button>
+                                                )}
+                                            </div>
+                                            <div>
+                                                {/* Non-Pasal chunks (PREAMBLE, MENIMBANG, etc.), SE chunks, Nota Dinas chunks, and TABLEs */}
+                                                {chunks.filter(c => !c.pasal || ['PREAMBLE', 'MENIMBANG', 'MENGINGAT', 'PENETAPAN', 'PENUTUP', 'SECTION', 'SUBSECTION', 'PENJELASAN_UMUM', 'PENJELASAN_PASAL', 'PENJELASAN_AYAT', 'HEADING_SECTION', 'LAMPIRAN', 'LAMPIRAN_SECTION', 'BAB', 'BAGIAN', 'PARAGRAF', 'ND_HEADER', 'ND_PEMBUKA', 'ND_ISI_ITEM', 'ND_SUB_ITEM', 'ND_SUB_SUB_ITEM', 'ND_PENEGASAN', 'ND_PENUTUP', 'ND_LAMPIRAN_SECTION', 'TABLE'].includes(c.chunkType)).map((chunk) => (
+                                                    <button
+                                                        key={chunk.id}
+                                                        onClick={() => setSelectedChunk(chunk)}
+                                                        className={`w-full text-left p-3 border-b border-neutral-800 hover:bg-neutral-800 transition-colors ${selectedChunk?.id === chunk.id ? 'bg-neutral-800 border-l-2 border-blue-500' : ''
+                                                            }`}
+                                                    >
+                                                        <div className="text-sm font-medium truncate">
+                                                            {chunk.title || chunk.chunkType}
+                                                        </div>
+                                                        <div className="text-xs text-neutral-600 mt-1">
+                                                            ~{chunk.tokenEstimate || 0} tokens
+                                                        </div>
+                                                    </button>
+                                                ))}
 
-                                                    {isExpanded && (
-                                                        <div className="mt-3 space-y-2">
-                                                            {group.items.map((chunk) => (
-                                                                <div key={chunk.id} className="border border-neutral-800 rounded p-3">
-                                                                    <div className="flex justify-between items-start mb-2">
-                                                                        <span className="text-neutral-400 text-sm">
-                                                                            {chunk.title || chunk.chunkType}
-                                                                        </span>
-                                                                        <div className="flex gap-2">
-                                                                            <button
-                                                                                onClick={() => handleEditChunk(chunk)}
-                                                                                className="text-neutral-500 hover:text-white text-sm"
-                                                                                title="Edit"
-                                                                            >
-                                                                                ✏️
-                                                                            </button>
-                                                                            <button
-                                                                                onClick={() => handleDeleteChunk(chunk.id)}
-                                                                                className="text-neutral-500 hover:text-red-400 text-sm"
-                                                                                title="Delete"
-                                                                            >
-                                                                                🗑️
-                                                                            </button>
+                                                {/* Pasal groups with nested Ayat */}
+                                                {(() => {
+                                                    const pasalGroups = new Map<string, { pasal: Chunk | null; ayats: Chunk[] }>();
+                                                    chunks.forEach(chunk => {
+                                                        if (chunk.pasal && chunk.chunkType === 'PASAL') {
+                                                            if (!pasalGroups.has(chunk.pasal)) {
+                                                                pasalGroups.set(chunk.pasal, { pasal: chunk, ayats: [] });
+                                                            } else {
+                                                                pasalGroups.get(chunk.pasal)!.pasal = chunk;
+                                                            }
+                                                        } else if (chunk.pasal && chunk.chunkType === 'AYAT') {
+                                                            if (!pasalGroups.has(chunk.pasal)) {
+                                                                pasalGroups.set(chunk.pasal, { pasal: null, ayats: [] });
+                                                            }
+                                                            pasalGroups.get(chunk.pasal)!.ayats.push(chunk);
+                                                        }
+                                                    });
+
+                                                    const sortedPasals = Array.from(pasalGroups.entries())
+                                                        .sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
+
+                                                    return sortedPasals.map(([pasalNum, group]) => {
+                                                        const isExpanded = expandedPasals.has(pasalNum);
+                                                        const hasAyats = group.ayats.length > 0;
+                                                        const mainChunk = group.pasal || group.ayats[0];
+
+                                                        return (
+                                                            <div key={pasalNum} className="border-b border-neutral-800">
+                                                                <div className="flex">
+                                                                    {hasAyats && (
+                                                                        <button
+                                                                            onClick={() => toggleChunk(pasalNum)}
+                                                                            className="px-2 text-neutral-500 hover:text-white"
+                                                                        >
+                                                                            {isExpanded ? '▼' : '▶'}
+                                                                        </button>
+                                                                    )}
+                                                                    <button
+                                                                        onClick={() => mainChunk && setSelectedChunk(mainChunk)}
+                                                                        className={`flex-1 text-left p-3 hover:bg-neutral-800 transition-colors ${selectedChunk?.id === mainChunk?.id ? 'bg-neutral-800 border-l-2 border-blue-500' : ''
+                                                                            } ${!hasAyats ? 'pl-7' : ''}`}
+                                                                    >
+                                                                        <div className="text-sm font-medium truncate">
+                                                                            Pasal {pasalNum}
                                                                         </div>
-                                                                    </div>
-                                                                    <div className="text-sm text-neutral-300 whitespace-pre-wrap">
-                                                                        {chunk.text.length > 500
-                                                                            ? chunk.text.slice(0, 500) + '...'
-                                                                            : chunk.text
-                                                                        }
-                                                                    </div>
+                                                                        <div className="text-xs text-neutral-600 mt-1">
+                                                                            ~{mainChunk?.tokenEstimate || 0} tokens
+                                                                            {hasAyats && <span className="ml-1 text-neutral-500">• {group.ayats.length} ayat</span>}
+                                                                        </div>
+                                                                    </button>
                                                                 </div>
-                                                            ))}
+
+                                                                {isExpanded && hasAyats && (
+                                                                    <div className="bg-neutral-900/50">
+                                                                        {group.ayats.sort((a, b) => parseInt(a.ayat || '0') - parseInt(b.ayat || '0')).map((ayat) => (
+                                                                            <button
+                                                                                key={ayat.id}
+                                                                                onClick={() => setSelectedChunk(ayat)}
+                                                                                className={`w-full text-left pl-10 pr-3 py-2 hover:bg-neutral-800 transition-colors border-t border-neutral-800/50 ${selectedChunk?.id === ayat.id ? 'bg-neutral-800 border-l-2 border-blue-500' : ''
+                                                                                    }`}
+                                                                            >
+                                                                                <div className="text-sm truncate text-neutral-300">
+                                                                                    Ayat ({ayat.ayat})
+                                                                                </div>
+                                                                                <div className="text-xs text-neutral-600">
+                                                                                    ~{ayat.tokenEstimate || 0} tokens
+                                                                                </div>
+                                                                            </button>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    });
+                                                })()}
+                                            </div>
+                                        </div>
+
+                                        {/* Right Panel - Content */}
+                                        <div className="flex-1 overflow-y-auto">
+                                            {selectedChunk ? (
+                                                <div className="p-6">
+                                                    <div className="flex justify-between items-start mb-4">
+                                                        <div>
+                                                            <h3 className="text-lg font-semibold">
+                                                                {selectedChunk.title || selectedChunk.chunkType}
+                                                            </h3>
+                                                            <p className="text-sm text-neutral-500 mt-1">
+                                                                {selectedChunk.anchorCitation}
+                                                            </p>
+                                                        </div>
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                onClick={() => handleEditChunk(selectedChunk)}
+                                                                className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded"
+                                                                title="Edit"
+                                                            >
+                                                                <Pencil size={16} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDeleteChunk(selectedChunk.id)}
+                                                                className="p-2 text-neutral-400 hover:text-red-400 hover:bg-neutral-800 rounded"
+                                                                title="Delete"
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="text-xs text-neutral-600 mb-4 flex gap-4">
+                                                        {selectedChunk.pasal && <span>Pasal: {selectedChunk.pasal}</span>}
+                                                        {selectedChunk.ayat && <span>Ayat: {selectedChunk.ayat}</span>}
+                                                        <span>Type: {selectedChunk.chunkType}</span>
+                                                        <span>Tokens: ~{selectedChunk.tokenEstimate || 0}</span>
+                                                    </div>
+
+                                                    <div className="border border-neutral-800 rounded-lg p-4 bg-neutral-900 overflow-auto">
+                                                        {selectedChunk.chunkType === 'TABLE' ? (
+                                                            <div className="markdown-table">
+                                                                <ReactMarkdown>
+                                                                    {selectedChunk.text}
+                                                                </ReactMarkdown>
+                                                            </div>
+                                                        ) : (
+                                                            <pre className="whitespace-pre-wrap text-sm text-neutral-300 font-mono">
+                                                                {selectedChunk.text}
+                                                            </pre>
+                                                        )}
+                                                    </div>
+
+                                                    {selectedChunk.legalRefs && selectedChunk.legalRefs.refs && selectedChunk.legalRefs.refs.length > 0 && (
+                                                        <div className="mt-4 p-3 border border-neutral-800 rounded-lg">
+                                                            <h4 className="text-sm font-medium text-neutral-400 mb-2">Legal References</h4>
+                                                            <div className="flex flex-wrap gap-2">
+                                                                {selectedChunk.legalRefs.refs.map((ref, i) => (
+                                                                    <span key={i} className="text-xs bg-neutral-800 px-2 py-1 rounded">
+                                                                        {ref}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
                                                         </div>
                                                     )}
                                                 </div>
-                                            );
-                                        })}
-                                    </div>
+                                            ) : (
+                                                <div className="flex-1 flex items-center justify-center text-neutral-500 h-full">
+                                                    Select a chunk from the list to view its content
+                                                </div>
+                                            )}
+                                        </div>
+                                    </>
                                 )}
                             </div>
                         )}

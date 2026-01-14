@@ -18,9 +18,55 @@ import {
     extractCitationsFromAnswer,
     buildCitationList,
 } from '@/lib/prompt';
+import { getTaxRateContextForQuestion, TaxRateContextItem } from '@/lib/tax/taxRateContext';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutes for streaming
+
+/**
+ * Strip thinking/reasoning prefix from answer content
+ * DeepSeek Reasoner sometimes mixes thinking with the actual answer
+ * This function detects and removes the thinking prefix
+ */
+function stripThinkingPrefix(text: string): { thinking: string; answer: string } {
+    // Common patterns that indicate thinking/reasoning (not the actual answer)
+    const thinkingPatterns = [
+        /^(Hmm|Okay|Baik|Mari|Pertama|Jadi),?\s/i,
+        /^(user\s+bertanya|pertanyaan\s+ini|dari\s+konteks)/i,
+        /^(saya\s+perlu|perlu\s+di|harus\s+di)/i,
+    ];
+
+    // If text doesn't start with thinking pattern, return as-is
+    const startsWithThinking = thinkingPatterns.some(p => p.test(text.trim()));
+    if (!startsWithThinking) {
+        return { thinking: '', answer: text };
+    }
+
+    // Look for markdown heading which typically starts the actual answer
+    const headingMatch = text.match(/(\n##\s+[^\n]+)/);
+    if (headingMatch && headingMatch.index !== undefined) {
+        const thinking = text.substring(0, headingMatch.index).trim();
+        const answer = text.substring(headingMatch.index).trim();
+        return { thinking, answer };
+    }
+
+    // Look for double newline paragraph break as separator
+    const paragraphBreak = text.indexOf('\n\n');
+    if (paragraphBreak > 50 && paragraphBreak < 500) {
+        // Check if text after break looks like actual answer
+        const afterBreak = text.substring(paragraphBreak + 2).trim();
+        const looksLikeAnswer = /^[#*\-\d]|^[A-Z]/.test(afterBreak);
+        if (looksLikeAnswer) {
+            return {
+                thinking: text.substring(0, paragraphBreak).trim(),
+                answer: afterBreak
+            };
+        }
+    }
+
+    // No clear separator found, return as-is
+    return { thinking: '', answer: text };
+}
 
 // Request validation schema
 const streamRequestSchema = z.object({
@@ -184,15 +230,45 @@ export async function POST(request: NextRequest) {
                         baseCasualMessages[1]  // User
                     ];
                     let answerContent = '';
+                    let thinkingContent = '';
+
+                    // Check if model has built-in thinking (DeepSeek Reasoner)
+                    const isReasonerModel = modelInfo.hasBuiltinThinking;
+
+                    if (isReasonerModel) {
+                        send('status', { stage: 'thinking', message: 'Sedang berpikir...' });
+                    } else {
+                        send('status', { stage: 'answering', message: 'Menjawab...' });
+                    }
 
                     for await (const chunk of streamChat(model as OwlieModel, casualMessages, {
-                        maxTokens: 500,  // Short response for casual
-                        enableThinking: false,
+                        maxTokens: 1000,
+                        enableThinking: isReasonerModel,
                     })) {
-                        if (chunk.type === 'content') {
+                        if (chunk.type === 'thinking') {
+                            // Show thinking in UI
+                            thinkingContent += chunk.text;
+                            send('thinking', { token: chunk.text, content: thinkingContent });
+                        } else if (chunk.type === 'content') {
+                            // Switch to answering when content starts
+                            if (!answerContent && thinkingContent) {
+                                send('thinking_done', { content: thinkingContent });
+                                send('status', { stage: 'answering', message: 'Menyusun jawaban...' });
+                            }
                             answerContent += chunk.text;
                             send('answer', { token: chunk.text, content: answerContent });
                         }
+                    }
+
+                    // FALLBACK: If reasoner model returned only reasoning_content, no content
+                    if (!answerContent.trim() && thinkingContent.trim()) {
+                        console.log('[Stream] CASUAL: Using thinking as answer fallback');
+                        // Clean thinking content - extract actual response
+                        const cleaned = stripThinkingPrefix(thinkingContent);
+                        answerContent = cleaned.answer || thinkingContent;
+                        send('thinking_done', { content: thinkingContent });
+                        send('status', { stage: 'answering', message: 'Menyusun jawaban...' });
+                        send('answer', { token: '', content: answerContent });
                     }
 
                     send('done', { processingTimeMs: Date.now() - startTime, model: modelInfo.id });
@@ -211,27 +287,139 @@ export async function POST(request: NextRequest) {
                     }
                 });
 
-                // 2. Retrieve chunks
-                const retrievalFilters: RetrievalFilters | undefined = filters ? {
-                    jenis: filters.jenis as RetrievalFilters['jenis'],
-                    nomor: filters.nomor,
-                    tahun: filters.tahun,
-                    pasal: filters.pasal,
-                } : undefined;
+                // 2. Auto-extract document references from question
+                // Patterns: PER-17/PJ/2025, PMK-123/PMK.010/2023, PP 36/2008, SE-11/PJ/2024, etc.
+                const extractDocRef = (text: string): { nomor?: string; tahun?: number; jenis?: string; pasal?: string } => {
+                    const result: { nomor?: string; tahun?: number; jenis?: string; pasal?: string } = {};
 
-                const chunks = await retrieve(question, topK, retrievalFilters);
+                    // Extract regulation number patterns - return ONLY the number, not full reference
+                    const perMatch = text.match(/\bPER[- ]?(\d+)\/PJ\/(\d{4})\b/i);
+                    if (perMatch) {
+                        result.nomor = perMatch[1];  // Just the number
+                        result.tahun = parseInt(perMatch[2], 10);
+                        result.jenis = 'PER';
+                    }
 
+                    const pmkMatch = text.match(/\bPMK[- ]?(\d+)(?:\/PMK\.[^\s\/]+)?\/(\d{4})\b/i);
+                    if (pmkMatch) {
+                        result.nomor = pmkMatch[1];  // Just the number
+                        result.tahun = parseInt(pmkMatch[2], 10);
+                        result.jenis = 'PMK';
+                    }
+
+                    // PP patterns: "PP 73 Tahun 2016", "PP 73/2016", "PP Nomor 73"
+                    const ppMatch = text.match(/\bPP(?:\s+Nomor)?\s+(\d+)(?:\s+Tahun\s+|\/)?(\d{4})?\b/i);
+                    if (ppMatch) {
+                        result.nomor = ppMatch[1];  // Just the number
+                        if (ppMatch[2]) result.tahun = parseInt(ppMatch[2], 10);
+                        result.jenis = 'PP';
+                    }
+
+                    const seMatch = text.match(/\bSE[- ]?(\d+)\/[A-Z0-9.]+\/(\d{4})\b/i);
+                    if (seMatch) {
+                        result.nomor = seMatch[1];  // Just the number
+                        result.tahun = parseInt(seMatch[2], 10);
+                        result.jenis = 'SE';
+                    }
+
+                    // Extract pasal number if mentioned
+                    const pasalMatch = text.match(/\bPasal\s+(\d+[A-Z]?)\b/i);
+                    if (pasalMatch) {
+                        result.pasal = pasalMatch[1];
+                    }
+
+                    return result;
+                };
+
+                const extractedRefs = extractDocRef(question);
+                console.log(`[Stream] Extracted refs from question:`, extractedRefs);
+
+                // 2.1. Build retrieval filters (merge explicit filters with extracted refs)
+                const retrievalFilters: RetrievalFilters = {
+                    jenis: filters?.jenis as RetrievalFilters['jenis'] || extractedRefs.jenis as RetrievalFilters['jenis'],
+                    nomor: filters?.nomor || extractedRefs.nomor,
+                    tahun: filters?.tahun || extractedRefs.tahun,
+                    pasal: filters?.pasal || extractedRefs.pasal,
+                };
+
+                // Only pass filters if at least one is defined
+                const hasFilters = Object.values(retrievalFilters).some(v => v !== undefined);
+
+                let chunks = await retrieve(question, topK, hasFilters ? retrievalFilters : undefined);
+
+                // If still no results with filters, try without filters for broader search
+                if (chunks.length === 0 && hasFilters) {
+                    console.log('[Stream] No results with filters, trying broader search...');
+                    chunks = await retrieve(question, topK, undefined);
+                }
+
+                // If still no results, try to give a helpful AI response anyway
                 if (chunks.length === 0) {
-                    send('answer', { content: 'Maaf, tidak ditemukan dokumen relevan.' });
-                    send('done', { processingTimeMs: Date.now() - startTime });
+                    console.log('[Stream] No chunks found, using AI fallback...');
+                    send('status', { stage: 'no_documents', message: 'Tidak ada dokumen relevan, mencoba menjawab...' });
+
+                    // Use AI to give a helpful response even without RAG context
+                    const noDocsMessages: ChatMessage[] = [
+                        {
+                            role: 'system' as const,
+                            content: `Kamu adalah TPC AI, asisten perpajakan Indonesia.
+                            
+User bertanya tentang regulasi atau topik perpajakan, tapi sistem RAG tidak menemukan dokumen yang relevan di database.
+
+Panduan respons:
+1. Akui bahwa dokumen spesifik tidak ditemukan di database
+2. Jika kamu tahu tentang topik tersebut secara umum, berikan informasi umum yang kamu ketahui
+3. Sarankan untuk meng-upload dokumen terkait jika belum ada
+4. Jangan membuat-buat isi regulasi spesifik yang tidak kamu ketahui
+
+Contoh format respons:
+"Maaf, dokumen [nama regulasi] belum tersedia dalam database saya. Namun, berdasarkan pengetahuan saya...
+
+[informasi umum jika ada]
+
+Untuk mendapatkan informasi yang lebih akurat, silakan upload dokumen [nama regulasi] ke sistem."`,
+                        },
+                        {
+                            role: 'user' as const,
+                            content: question,
+                        },
+                    ];
+
+                    for await (const chunk of streamChat(model as OwlieModel, noDocsMessages, { maxTokens: 1000 })) {
+                        if (chunk.type === 'content') {
+                            send('answer', { token: chunk.text });
+                        }
+                    }
+
+                    send('done', { processingTimeMs: Date.now() - startTime, noDocuments: true });
                     close();
                     return;
                 }
 
                 send('status', { stage: 'retrieved', chunksCount: chunks.length });
 
-                // 3. Build messages with history
-                const { messages: baseMessages, labeledChunks } = buildRAGMessages(question, chunks, mode);
+                // 2.5. Fetch tax rate context if question is tariff-related
+                let taxRateContext = '';
+                let taxRateItems: TaxRateContextItem[] = [];
+                try {
+                    const taxRateResult = await getTaxRateContextForQuestion(question);
+                    if (taxRateResult.needed && taxRateResult.items.length > 0) {
+                        taxRateContext = taxRateResult.context;
+                        taxRateItems = taxRateResult.items;
+                        console.log(`[Stream] Tax rate context injected: ${taxRateItems.length} rates`);
+                        send('status', {
+                            stage: 'tax_rates_loaded',
+                            message: `Memuat ${taxRateItems.length} data tarif...`,
+                            taxRatesCount: taxRateItems.length
+                        });
+                    }
+                } catch (taxRateError) {
+                    console.warn('[Stream] Tax rate fetch failed:', taxRateError);
+                    // Continue without tax rates
+                }
+
+                // 3. Build messages with history and tax rate context
+                const { messages: baseMessages, labeledChunks } = buildRAGMessages(question, chunks, mode, taxRateContext);
                 const messages = [
                     baseMessages[0], // System
                     ...history,
@@ -280,6 +468,31 @@ export async function POST(request: NextRequest) {
                     send('thinking_done', { content: thinkingContent });
                 }
 
+                // FALLBACK: If no answer content but we have thinking content,
+                // DeepSeek Reasoner may have put everything in reasoning_content
+                // Use thinking content as the answer in this case
+                if (!answerContent.trim() && thinkingContent.trim()) {
+                    console.log('[Stream] FALLBACK: No answer content, using thinking content as answer');
+                    answerContent = thinkingContent;
+                    // Re-send as answer
+                    send('answer', { token: '', content: answerContent });
+                }
+
+                // Clean answer content - remove thinking prefix if present
+                const cleaned = stripThinkingPrefix(answerContent);
+                if (cleaned.thinking) {
+                    console.log('[Stream] Stripped thinking prefix from answer:', cleaned.thinking.substring(0, 100));
+                    // Update thinkingContent with stripped thinking and re-send
+                    if (!thinkingContent) {
+                        thinkingContent = cleaned.thinking;
+                        send('thinking', { token: '', content: thinkingContent });
+                        send('thinking_done', { content: thinkingContent });
+                    }
+                    // Update answer with cleaned content
+                    answerContent = cleaned.answer;
+                    send('answer', { token: '', content: answerContent });
+                }
+
                 // 5. Extract citations
                 const usedLabels = extractCitationsFromAnswer(answerContent);
                 const citations = buildCitationList(labeledChunks, usedLabels);
@@ -295,11 +508,27 @@ export async function POST(request: NextRequest) {
                         similarity: c.similarity,
                     }))
                 });
+
+                // 6.5. Send tax rates if used
+                if (taxRateItems.length > 0) {
+                    send('taxRates', {
+                        taxRates: taxRateItems.map(tr => ({
+                            label: tr.label,
+                            categoryCode: tr.categoryCode,
+                            ruleName: tr.ruleName,
+                            ratePercent: tr.ratePercent,
+                            rateType: tr.rateType,
+                            sourceRef: tr.sourceRef,
+                        }))
+                    });
+                }
+
                 send('done', {
                     processingTimeMs: Date.now() - startTime,
                     tokensThinking: thinkingContent.split(/\s+/).length,
                     tokensAnswer: answerContent.split(/\s+/).length,
                     model: modelInfo.id,
+                    taxRatesUsed: taxRateItems.length,
                 });
 
             } catch (error) {

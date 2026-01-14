@@ -25,11 +25,13 @@ enum DocumentType {
 
 enum RegulationType {
   UU
+  PERPU
   PP
   PMK
   PER
   SE
   KEP
+  NOTA_DINAS
   PUTUSAN
   BUKU
   UNKNOWN
@@ -42,6 +44,16 @@ enum RegulationStatus {
   unknown
 }
 
+enum DocumentSubtype {
+  PMK_NASKAH
+  PMK_PUBLIKASI
+  PER_NASKAH
+  PER_SALINDIA
+  BUKU_REFERENSI
+  BUKU_PANDUAN
+  UNKNOWN
+}
+
 enum ChunkType {
   PREAMBLE
   PASAL
@@ -52,6 +64,32 @@ enum ChunkType {
   AMAR
   BAB
   SUBBAB
+  // PMK/PER-specific
+  MENIMBANG
+  MENGINGAT
+  PENETAPAN
+  BAGIAN
+  PARAGRAF
+  HURUF
+  LAMPIRAN
+  LAMPIRAN_SECTION
+  HEADING_SECTION
+  PENUTUP
+  // PP-specific (Penjelasan section)
+  PENJELASAN_UMUM
+  PENJELASAN_PASAL
+  PENJELASAN_AYAT
+  // Nota Dinas-specific
+  ND_HEADER
+  ND_PEMBUKA
+  ND_ISI_ITEM
+  ND_SUB_ITEM
+  ND_SUB_SUB_ITEM
+  ND_PENEGASAN
+  ND_PENUTUP
+  ND_LAMPIRAN_SECTION
+  // Table (extracted by AI, RAG-searchable)
+  TABLE
 }
 
 enum ChunkRole {
@@ -90,6 +128,7 @@ model DocumentMetadata {
   tanggalTerbit   DateTime?
   tanggalBerlaku  DateTime?
   statusAturan    RegulationStatus @default(unknown)
+  documentSubtype DocumentSubtype  @default(UNKNOWN)
   confidence      Float            @default(0)
   extractionNotes Json?
   updatedByUser   Boolean          @default(false)
@@ -115,6 +154,9 @@ model RegulationChunk {
   pasal          String?
   ayat           String?
   huruf          String?
+  bab            String?  // e.g., "I", "II"
+  bagian         String?  // e.g., "Kesatu", "Kedua"
+  paragraf       String?  // e.g., "1", "2" (for PER)
   chunkType      ChunkType        @default(PASAL)
   role           ChunkRole        @default(UNKNOWN)
   title          String?
@@ -123,6 +165,7 @@ model RegulationChunk {
   orderIndex     Int
   text           String
   tokenEstimate  Int?
+  sourcePart     String?  // BATANG_TUBUH or PENJELASAN (for PP)
   createdAt      DateTime         @default(now())
   embedding      ChunkEmbedding?
 
@@ -159,4 +202,97 @@ model DocumentTable {
   updatedAt   DateTime @updatedAt
 
   @@index([documentId])
+}
+
+// ============== TAX RATE REGISTRY ==============
+
+enum TaxRateType {
+  FLAT
+  PROGRESSIVE
+  MATRIX
+}
+
+enum TaxBaseType {
+  GROSS
+  NET
+  DPP
+  NILAI_IMPOR
+  OTHER
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+// Tax rate categories (PPN, PPh21, PPh23, etc.)
+model TaxRateCategory {
+  id          String        @id @default(uuid())
+  code        String        @unique  // PPN, PPh21, PPh23, PPh26, PPhFinal, PPhBadan, PPnBM, TER, PTKP
+  name        String
+  description String?
+  rules       TaxRateRule[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+// Individual tax rate rules
+model TaxRateRule {
+  id            String           @id @default(uuid())
+  categoryId    String
+  category      TaxRateCategory  @relation(fields: [categoryId], references: [id])
+  name          String           // Human readable name
+  objectCode    String           // PPN_GENERAL, PPh23_JASA, TER_A_BULANAN, etc.
+  jurisdiction  String           @default("ID")
+  rateType      TaxRateType
+  baseType      TaxBaseType      @default(GROSS)
+  rateValue     Decimal?         // For FLAT/MATRIX (stored as 0.11 for 11%)
+  multiplier    Decimal?         // For "tanpa NPWP" rules (e.g., 2.0)
+  conditions    Json?            // {hasNpwp, countryCode, incomeType, ptkpStatus, etc}
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  priority      Int              @default(100)  // Higher wins
+  sourceRef     String?          // Reference to regulation (e.g., "PMK 168/2023")
+  notes         String?
+  isActive      Boolean          @default(true)
+  createdBy     String?
+  brackets      TaxRateBracket[]
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@unique([categoryId, objectCode, effectiveFrom])
+  @@index([categoryId, isActive])
+  @@index([objectCode])
+  @@index([effectiveFrom, effectiveTo])
+}
+
+// Tax brackets for PROGRESSIVE rates (PPh21, TER)
+model TaxRateBracket {
+  id         String      @id @default(uuid())
+  ruleId     String
+  rule       TaxRateRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  minAmount  Decimal
+  maxAmount  Decimal?    // null = unlimited
+  rate       Decimal     // 0.05 for 5%
+  orderIndex Int
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@index([ruleId, orderIndex])
+}
+
+// Audit trail for tax rate changes
+model TaxRateAudit {
+  id         String      @id @default(uuid())
+  entityType String      // TaxRateRule, TaxRateBracket, TaxRateCategory
+  entityId   String
+  action     AuditAction
+  before     Json?
+  after      Json?
+  actor      String?
+  createdAt  DateTime    @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
 }

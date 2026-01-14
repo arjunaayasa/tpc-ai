@@ -62,6 +62,9 @@ export default async function DocumentsPage({
                         <Link href="/upload" className="text-neutral-400 hover:text-white transition-colors">
                             Upload
                         </Link>
+                        <Link href="/admin/tax-rates" className="text-neutral-400 hover:text-white transition-colors">
+                            Tax Rates
+                        </Link>
                     </div>
                 </div>
             </nav>

@@ -13,8 +13,8 @@ const EMBEDDING_DIM = parseInt(process.env.EMBEDDING_DIM || '1024', 10);
 
 export { EMBEDDING_DIM, EMBEDDING_MODEL };
 
-// Max characters for embedding (nomic-embed-text has ~8k token context)
-const MAX_EMBED_CHARS = 6000;
+// Max characters for embedding (nomic-embed-text has ~8k token context, but safer at 4k chars)
+const MAX_EMBED_CHARS = 4000;
 
 /**
  * Truncate text to fit within embedding model context
@@ -53,7 +53,7 @@ async function embedWithTEI(texts: string[]): Promise<number[][]> {
     }
 
     const data = await response.json() as TEIResponse;
-    
+
     // TEI returns { embeddings: [[...], [...]] } or just [[...], [...]]
     if (Array.isArray(data)) {
         return data;
@@ -102,8 +102,8 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
         return [];
     }
 
-    // Truncate texts that are too long (rough estimate: 8000 chars ~ 2000 tokens)
-    const truncatedTexts = texts.map(t => t.slice(0, 8000));
+    // Truncate texts that are too long
+    const truncatedTexts = texts.map(truncateForEmbedding);
 
     if (EMBEDDING_PROVIDER === 'tei') {
         return embedWithTEI(truncatedTexts);
@@ -137,16 +137,16 @@ export async function embedTextsWithBatching(
     onProgress?: (completed: number, total: number) => void
 ): Promise<number[][]> {
     const results: number[][] = [];
-    
+
     for (let i = 0; i < texts.length; i += batchSize) {
         const batch = texts.slice(i, i + batchSize);
         const batchEmbeddings = await embedTexts(batch);
         results.push(...batchEmbeddings);
-        
+
         if (onProgress) {
             onProgress(Math.min(i + batchSize, texts.length), texts.length);
         }
     }
-    
+
     return results;
 }

@@ -5,6 +5,7 @@
 
 import { ChunkResult } from './retrieval';
 import { ChatMessage } from './chat-service';
+import { TaxRateContextItem } from './tax/taxRateContext';
 
 export type AnswerMode = 'strict' | 'balanced';
 
@@ -29,11 +30,22 @@ function buildContext(chunks: LabeledChunk[]): string {
     return chunks.map(chunk => {
         const citation = chunk.anchorCitation;
         const metadata = chunk.metadata;
-        const docInfo = [
-            metadata.jenis !== 'UNKNOWN' ? metadata.jenis : null,
-            metadata.nomor,
-            metadata.tahun ? `Tahun ${metadata.tahun}` : null,
-        ].filter(Boolean).join(' ');
+
+        // For BUKU type, use judul (book title) as the main identifier
+        let docInfo: string;
+        if (metadata.jenis === 'BUKU' && metadata.judul) {
+            // Use book title directly, optionally with year
+            docInfo = metadata.tahun
+                ? `${metadata.judul} (${metadata.tahun})`
+                : metadata.judul;
+        } else {
+            // For regulations: show jenis, nomor, tahun
+            docInfo = [
+                metadata.jenis !== 'UNKNOWN' ? metadata.jenis : null,
+                metadata.nomor,
+                metadata.tahun ? `Tahun ${metadata.tahun}` : null,
+            ].filter(Boolean).join(' ');
+        }
 
         return `[${chunk.label}] ${docInfo ? `(${docInfo}) ` : ''}${citation}
 ${chunk.text}`;
@@ -43,7 +55,7 @@ ${chunk.text}`;
 /**
  * Build system prompt for RAG
  */
-function buildSystemPrompt(mode: AnswerMode): string {
+function buildSystemPrompt(mode: AnswerMode, hasTaxRateContext: boolean = false): string {
     const strictRules = `
 ATURAN PENTING:
 1. Jawab berdasarkan konteks regulasi yang diberikan.
@@ -58,6 +70,14 @@ ATURAN:
 3. Jika konteks tidak mencukupi, boleh memberikan penjelasan umum tapi sampaikan bahwa itu bukan dari dokumen yang tersedia.
 4. DILARANG mengarang nomor pasal atau regulasi yang tidak ada di konteks.`;
 
+    const taxRateInstructions = hasTaxRateContext ? `
+
+DATA TARIF PAJAK:
+- Jika konteks menyertakan "DATA TARIF PAJAK", gunakan angka tarif dari situ untuk menjawab pertanyaan tentang besaran tarif.
+- Sitasi data tarif dengan [TR1], [TR2], dst sesuai label yang diberikan.
+- Data tarif ini adalah data yang pasti dan akurat dari Tax Rate Registry.
+- Jika ada perbedaan antara regulasi chunks dan data tarif, prioritaskan data tarif untuk angka tarif spesifik.` : '';
+
     return `Anda adalah TPC AI (Owlie), asisten perpajakan Indonesia yang ahli, helpful, dan memiliki pendapat profesional.
 
 IDENTITAS:
@@ -66,9 +86,8 @@ IDENTITAS:
 - DILARANG menyebutkan nama model AI lain seperti Qwen, GPT, Claude, Gemini, atau nama teknis lainnya.
 - DILARANG menyebutkan bahwa Anda adalah produk Alibaba, OpenAI, Anthropic, Google, atau perusahaan teknologi lainnya.
 
-${mode === 'strict' ? strictRules : balancedRules}
+${mode === 'strict' ? strictRules : balancedRules}${taxRateInstructions}
 
-CARA MENJAWAB:
 CARA MENJAWAB:
 - Gunakan **Header Markdown** (## Topik Utama, ### Detail) untuk menstruktur jawaban. JANGAN gunakan h1 (#).
 - **WAJIB** gunakan jarak antar paragraf (double break) agar teks tidak menumpuk.
@@ -76,6 +95,7 @@ CARA MENJAWAB:
 - Jawab dengan bahasa Indonesia yang natural, profesional, dan mudah dipahami.
 - Jelaskan konsep dengan jelas, berikan contoh jika membantu.
 - WAJIB cantumkan sitasi [C1], [C2], dst tepat di akhir kalimat yang relevan.
+- Jika ada data tarif, cantumkan juga sitasi [TR1], [TR2], dst untuk referensi tarif.
 - Di akhir jawaban, cantumkan daftar referensi yang digunakan.
 
 PENDAPAT DAN ANALISIS:
@@ -84,24 +104,31 @@ PENDAPAT DAN ANALISIS:
 - Untuk pendapat, gunakan frasa seperti: "Menurut analisis saya...", "Dari sudut pandang praktis...", "Saran saya adalah..."
 - Pendapat harus tetap berdasarkan prinsip perpajakan yang benar dan tidak menyesatkan.
 
-Konteks berisi potongan regulasi yang relevan dengan label [C1], [C2], dst.`;
+Konteks berisi potongan regulasi yang relevan dengan label [C1], [C2], dst.${hasTaxRateContext ? ' Data tarif pajak diberi label [TR1], [TR2], dst.' : ''}`;
 }
 
 /**
  * Build user prompt with question and context
  */
-function buildUserPrompt(question: string, chunks: LabeledChunk[]): string {
+function buildUserPrompt(question: string, chunks: LabeledChunk[], taxRateContext?: string): string {
     const context = buildContext(chunks);
+
+    const taxRateSection = taxRateContext ? `
+
+${taxRateContext}
+
+---
+` : '';
 
     return `KONTEKS REGULASI:
 ${context}
-
+${taxRateSection}
 ---
 
 PERTANYAAN:
 ${question}
 
-Jawab pertanyaan di atas secara lengkap dan komprehensif berdasarkan konteks regulasi yang diberikan. Jangan batasi panjang jawaban - jelaskan sedetail yang diperlukan.`;
+Jawab pertanyaan di atas secara lengkap dan komprehensif berdasarkan konteks regulasi yang diberikan.${taxRateContext ? ' Untuk data tarif, gunakan angka dari DATA TARIF PAJAK.' : ''} Jangan batasi panjang jawaban - jelaskan sedetail yang diperlukan.`;
 }
 
 /**
@@ -110,18 +137,20 @@ Jawab pertanyaan di atas secara lengkap dan komprehensif berdasarkan konteks reg
 export function buildRAGMessages(
     question: string,
     chunks: ChunkResult[],
-    mode: AnswerMode = 'strict'
+    mode: AnswerMode = 'strict',
+    taxRateContext?: string
 ): { messages: ChatMessage[]; labeledChunks: LabeledChunk[] } {
     const labeledChunks = labelChunks(chunks);
+    const hasTaxRateContext = !!taxRateContext;
 
     const messages: ChatMessage[] = [
         {
             role: 'system',
-            content: buildSystemPrompt(mode),
+            content: buildSystemPrompt(mode, hasTaxRateContext),
         },
         {
             role: 'user',
-            content: buildUserPrompt(question, labeledChunks),
+            content: buildUserPrompt(question, labeledChunks, taxRateContext),
         },
     ];
 
@@ -154,7 +183,7 @@ export function extractCitationsFromAnswer(answer: string): string[] {
 export function buildCitationList(
     labeledChunks: LabeledChunk[],
     usedLabels: string[]
-): { label: string; chunkId: string; anchorCitation: string; documentId: string; jenis: string; nomor: string | null; tahun: number | null }[] {
+): { label: string; chunkId: string; anchorCitation: string; documentId: string; jenis: string; nomor: string | null; tahun: number | null; judul: string | null }[] {
     return labeledChunks
         .filter(chunk => usedLabels.includes(chunk.label))
         .map(chunk => ({
@@ -165,5 +194,7 @@ export function buildCitationList(
             jenis: chunk.metadata.jenis,
             nomor: chunk.metadata.nomor,
             tahun: chunk.metadata.tahun,
+            judul: chunk.metadata.judul,
         }));
 }
+

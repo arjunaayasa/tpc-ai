@@ -1,5 +1,5 @@
 // Local type definitions matching Prisma schema
-type RegulationType = 'UU' | 'PP' | 'PMK' | 'PER' | 'SE' | 'KEP' | 'PUTUSAN' | 'BUKU' | 'UNKNOWN';
+type RegulationType = 'UU' | 'PERPU' | 'PP' | 'PMK' | 'PER' | 'SE' | 'KEP' | 'NOTA_DINAS' | 'PUTUSAN' | 'BUKU' | 'UNKNOWN';
 type RegulationStatus = 'berlaku' | 'diubah' | 'dicabut' | 'unknown';
 
 export interface ExtractedMetadata {
@@ -16,33 +16,64 @@ export interface ExtractedMetadata {
 
 // Regex patterns for Indonesian tax regulations
 const PATTERNS = {
-    // Jenis dokumen patterns
+    // Jenis dokumen patterns - ORDER MATTERS! More specific patterns first
     jenisPatterns: [
+        // PUTUSAN - very specific, check first
         { regex: /\bPUTUSAN\b/i, type: 'PUTUSAN' as const },
-        { regex: /\bPUT[-.]\d+/i, type: 'PUTUSAN' as const },
+        { regex: /\bPUT[-\.]\d+/i, type: 'PUTUSAN' as const },
         { regex: /\bPENGADILAN\s+PAJAK\b/i, type: 'PUTUSAN' as const },
-        // BUKU detection - more flexible patterns
-        { regex: /\bBAB\s+[IVX]+\b[\s\S]{0,5000}\bBAB\s+[IVX]+\b/i, type: 'BUKU' as const }, // Multiple BAB with Roman
-        { regex: /\bBAB\s+\d+\b[\s\S]{0,5000}\bBAB\s+\d+\b/i, type: 'BUKU' as const }, // Multiple BAB with Arabic
-        { regex: /\bCHAPTER\s+\d+\b[\s\S]{0,5000}\bCHAPTER\s+\d+\b/i, type: 'BUKU' as const }, // Multiple CHAPTER
-        { regex: /\bDAFTAR\s+ISI\b[\s\S]{0,2000}(?:BAB|CHAPTER|\d+\.\s+[A-Z])/i, type: 'BUKU' as const }, // Daftar isi followed by chapters
-        { regex: /\bKATA\s+PENGANTAR\b[\s\S]{0,3000}\bDAFTAR\s+ISI\b/i, type: 'BUKU' as const }, // Kata pengantar + daftar isi
-        { regex: /\bPenerbit\b[\s\S]{0,500}\bISBN\b/i, type: 'BUKU' as const }, // Publisher + ISBN
-        { regex: /\bISBN\b\s*:?\s*[\d\-]+/i, type: 'BUKU' as const }, // ISBN number
-        // Peraturan patterns
-        { regex: /\bUNDANG[- ]?UNDANG\b/i, type: 'UU' as const },
-        { regex: /\bUU\s*(?:NOMOR|NO\.?|:)\s*\d+/i, type: 'UU' as const },
-        { regex: /\bPERATURAN\s+PEMERINTAH\b/i, type: 'PP' as const },
-        { regex: /\bPP\s*(?:NOMOR|NO\.?|:)\s*\d+/i, type: 'PP' as const },
-        { regex: /\bPERATURAN\s+MENTERI\s+KEUANGAN\b/i, type: 'PMK' as const },
-        { regex: /\bPMK\s*(?:NOMOR|NO\.?|:)\s*\d+/i, type: 'PMK' as const },
+        // NOTA DINAS - BEFORE PMK (Nota Dinas about PMK should still be classified as ND)
+        { regex: /\bNOTA\s+DINAS\b/i, type: 'NOTA_DINAS' as const },
+        { regex: /\bND\s*[-.]?\s*\d+\/[A-Z0-9.\/]+\/\d{4}/i, type: 'NOTA_DINAS' as const },
+        { regex: /\bND\s*[-]?\s*\d+[-][A-Z]+[-]\d+[-]\d{4}/i, type: 'NOTA_DINAS' as const }, // ND14-PJ-02-2024 format
+        { regex: /\bND\d+[-][A-Z]+[-]\d+[-]\d{4}/i, type: 'NOTA_DINAS' as const }, // ND14-PJ-02-2024 without space
+        { regex: /\bNOMOR\s+ND\s*[-.]?\s*\d+/i, type: 'NOTA_DINAS' as const },
+        // PER (Peraturan Direktur Jenderal) - BEFORE PMK (PER about PMK should be classified as PER)
+        { regex: /\bPERATURAN\s+DIREKTUR\s+JENDERAL\s+PAJAK\b/i, type: 'PER' as const },
         { regex: /\bPERATURAN\s+DIREKTUR\s+JENDERAL\b/i, type: 'PER' as const },
-        { regex: /\bPER[- ]?\d+\/PJ/i, type: 'PER' as const },
+        { regex: /\bPER[- _]?\d+[- _\/]PJ/i, type: 'PER' as const }, // PER-11/PJ, PER_11_PJ
+        { regex: /\bPER\d+[_-][A-Z]+[_-]\d{4}/i, type: 'PER' as const }, // PER11_PJ_2025 format
+        { regex: /\bNOMOR\s+PER[- ]?\d+/i, type: 'PER' as const },
+        // SE (Surat Edaran) - BEFORE PMK
+        { regex: /\bSURAT\s+EDARAN\s+DIREKTUR\s+JENDERAL\s+PAJAK\b/i, type: 'SE' as const },
+        { regex: /\bSURAT\s+EDARAN\s+DIREKTUR\s+JENDERAL\b/i, type: 'SE' as const },
         { regex: /\bSURAT\s+EDARAN\b/i, type: 'SE' as const },
         { regex: /\bSE[- ]?\d+\/PJ/i, type: 'SE' as const },
+        { regex: /\bNOMOR\s+SE[- ]?\d+/i, type: 'SE' as const },
+        // PMK (Peraturan Menteri Keuangan) - after PER and SE
+        { regex: /\bPERATURAN\s+MENTERI\s+KEUANGAN\b/i, type: 'PMK' as const },
+        { regex: /\bPMK\s*(?:NOMOR|NO\.?|:)?\s*\d+/i, type: 'PMK' as const },
+        { regex: /\d+\/PMK\./i, type: 'PMK' as const },
+        // KEP (Keputusan) - BEFORE UU/PP
+        { regex: /\bKEPUTUSAN\s+DIREKTUR\s+JENDERAL\s+PAJAK\b/i, type: 'KEP' as const },
+        { regex: /\bKEPUTUSAN\s+DIREKTUR\s+JENDERAL\b/i, type: 'KEP' as const },
         { regex: /\bKEPUTUSAN\b/i, type: 'KEP' as const },
         { regex: /\bKEP[- ]?\d+/i, type: 'KEP' as const },
+        // PERPU (Peraturan Pemerintah Pengganti Undang-Undang) - BEFORE PP because PERPU contains "PERATURAN PEMERINTAH"
+        { regex: /\bPERATURAN\s+PEMERINTAH\s+PENGGANTI\s+UNDANG[-\s]?UNDANG\b/i, type: 'PERPU' as const },
+        { regex: /\bPERPU\s+NOMOR\s+\d+\s+TAHUN\b/i, type: 'PERPU' as const },
+        { regex: /\bPERPU\s*(?:NOMOR|NO\.?|:)?\s*\d+/i, type: 'PERPU' as const },
+        // PP (Peraturan Pemerintah) - AFTER PERPU!
+        { regex: /\bPERATURAN\s+PEMERINTAH\s+REPUBLIK\s+INDONESIA\b/i, type: 'PP' as const },
+        { regex: /\bPERATURAN\s+PEMERINTAH\b/i, type: 'PP' as const },
+        { regex: /\bPP\s+NOMOR\s+\d+\s+TAHUN\b/i, type: 'PP' as const },
+        { regex: /\bPP\s*(?:NOMOR|NO\.?|:)\s*\d+/i, type: 'PP' as const },
+        // UU (Undang-Undang)
+        { regex: /\bUNDANG[- ]?UNDANG\s+REPUBLIK\s+INDONESIA\b/i, type: 'UU' as const },
+        { regex: /\bUNDANG[- ]?UNDANG\b/i, type: 'UU' as const },
+        { regex: /\bUU\s*(?:NOMOR|NO\.?|:)\s*\d+/i, type: 'UU' as const },
+        // Menimbang+Mengingat as PMK fallback (only if no other match)
+        { regex: /\bMenimbang\s*:[\s\S]{0,500}Mengingat\s*:/i, type: 'PMK' as const },
+        // BUKU detection - AFTER regulations
+        { regex: /\bBAB\s+[IVX]+\b[\s\S]{0,5000}\bBAB\s+[IVX]+\b/i, type: 'BUKU' as const },
+        { regex: /\bBAB\s+\d+\b[\s\S]{0,5000}\bBAB\s+\d+\b/i, type: 'BUKU' as const },
+        { regex: /\bCHAPTER\s+\d+\b[\s\S]{0,5000}\bCHAPTER\s+\d+\b/i, type: 'BUKU' as const },
+        { regex: /\bDAFTAR\s+ISI\b[\s\S]{0,2000}(?:BAB|CHAPTER|\d+\.\s+[A-Z])/i, type: 'BUKU' as const },
+        { regex: /\bKATA\s+PENGANTAR\b[\s\S]{0,3000}\bDAFTAR\s+ISI\b/i, type: 'BUKU' as const },
+        { regex: /\bPenerbit\b[\s\S]{0,500}\bISBN\b/i, type: 'BUKU' as const },
+        { regex: /\bISBN\b\s*:?\s*[\d\-]+/i, type: 'BUKU' as const },
     ],
+
 
     // Nomor dokumen pattern
     nomorPattern: /(?:NOMOR|NO\.?)\s*:?\s*([\d\/\-\.A-Z]+)/i,
@@ -73,9 +104,63 @@ const MONTH_MAP: Record<string, number> = {
 };
 
 /**
- * Extract jenis dokumen from text
+ * Filename patterns for document type detection (higher priority than content)
+ * Patterns use (?:^|[_\-]) instead of \b to handle UUID prefix like "abc123_PER_11..."
  */
-function extractJenis(text: string): RegulationType {
+const FILENAME_PATTERNS: Array<{ regex: RegExp; type: RegulationType }> = [
+    // PER patterns in filename - handles multiple formats (with space, hyphen, or underscore)
+    { regex: /^PER[-_\s]?\d+[-_\s\/]?PJ/i, type: 'PER' },  // Starts with PER (no prefix)
+    { regex: /(?:^|[_\-\s])PER[-_\s]?\d+[-_\s\/]?PJ/i, type: 'PER' },
+    { regex: /(?:^|[_\-])PER\d+[-_][A-Z]+[-_]\d{4}/i, type: 'PER' }, // PER11_PJ_2025
+    { regex: /PER[-_]\d+[-_]PJ[-_]\d{4}/i, type: 'PER' }, // PER_11_PJ_2025
+    // ND patterns in filename  
+    { regex: /(?:^|[_\-\s])ND[-_\s]?\d+[-_\s\/]?PJ/i, type: 'NOTA_DINAS' },
+    { regex: /(?:^|[_\-])ND\d+[-_][A-Z]+[-_]\d+[-_]\d{4}/i, type: 'NOTA_DINAS' }, // ND14-PJ-02-2024
+    { regex: /ND[-_]\d+[-_]PJ/i, type: 'NOTA_DINAS' }, // ND_14_PJ format
+    // SE patterns in filename
+    { regex: /(?:^|[_\-\s])SE[-_\s]?\d+[-_\s\/]?PJ/i, type: 'SE' },
+    { regex: /SE[-_]\d+[-_]PJ/i, type: 'SE' }, // SE_1_PJ format
+    // PP patterns in filename - BEFORE PMK to prioritize PP detection
+    { regex: /^PP\s+Nomor\s+\d+/i, type: 'PP' },  // "PP Nomor 73 Tahun 2016"
+    { regex: /^PP\s+No\.?\s*\d+/i, type: 'PP' },   // "PP No 68" or "PP No. 68"
+    { regex: /^PP[-_\s]?\d+/i, type: 'PP' },       // Starts with PP (PP_36, PP 36, PP36)
+    { regex: /(?:^|[_\-\s])PP[-_\s]?\d+[-_\s]?\d{4}/i, type: 'PP' },
+    { regex: /PP\s+\d+\s+Tahun/i, type: 'PP' }, // "PP 36 Tahun 2008"
+    // PERPU patterns in filename - MUST BE BEFORE PMK
+    { regex: /^Perpu\s+Nomor\s+\d+/i, type: 'PERPU' },  // "Perpu Nomor 2 Tahun 2022"
+    { regex: /^PERPU[-_\s]?Nomor/i, type: 'PERPU' },    // "PERPU Nomor" or "PERPU-Nomor"
+    { regex: /^PERPU[-_\s]?\d+/i, type: 'PERPU' },       // Starts with PERPU
+    { regex: /(?:^|[_\-\s])PERPU[-_\s]?\d+[-_\s]?\d{4}/i, type: 'PERPU' },
+    { regex: /PERPU\s+\d+\s+Tahun/i, type: 'PERPU' }, // "PERPU 1 Tahun 2020"
+    // PMK patterns in filename - with space, hyphen, underscore, or "Tahun"
+    { regex: /^PMK[-_\s]?\d+/i, type: 'PMK' },  // Starts with PMK
+    { regex: /(?:^|[_\-\s])PMK[-_\s]?\d+/i, type: 'PMK' },
+    { regex: /PMK\s+\d+\s+Tahun/i, type: 'PMK' }, // "PMK 168 Tahun 2023"
+    // PUTUSAN patterns in filename - very specific
+    { regex: /(?:^|[_\-])PUT[-_.]?\d+/i, type: 'PUTUSAN' },
+    { regex: /PUTUSAN[-_]\d+/i, type: 'PUTUSAN' },
+];
+
+/**
+ * Extract jenis dokumen from text and optional filename
+ * Filename detection has higher priority than content detection
+ */
+function extractJenis(text: string, filename?: string): RegulationType {
+    // Check filename patterns first (higher priority)
+    if (filename) {
+        console.log(`[Heuristics] Checking filename for type detection: "${filename}"`);
+        for (const { regex, type } of FILENAME_PATTERNS) {
+            if (regex.test(filename)) {
+                console.log(`[Heuristics] Detected ${type} from filename pattern: ${regex}`);
+                return type;
+            }
+        }
+        console.log(`[Heuristics] No filename pattern matched, falling back to content detection`);
+    } else {
+        console.log(`[Heuristics] No filename provided, using content detection only`);
+    }
+
+    // Fallback to content patterns
     for (const { regex, type } of PATTERNS.jenisPatterns) {
         if (regex.test(text)) {
             return type;
@@ -254,9 +339,11 @@ function calculateConfidence(metadata: Partial<ExtractedMetadata>): number {
 
 /**
  * Main extraction function - applies all heuristics to extract metadata
+ * @param text - Document content text
+ * @param filename - Optional filename for improved type detection
  */
-export function extractMetadataFromText(text: string): ExtractedMetadata {
-    const jenis = extractJenis(text);
+export function extractMetadataFromText(text: string, filename?: string): ExtractedMetadata {
+    const jenis = extractJenis(text, filename);
     const nomor = extractNomor(text);
     const tahun = extractTahun(text);
     const judul = extractJudul(text);

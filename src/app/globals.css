@@ -24,3 +24,60 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Shimmer animation for thinking text */
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Markdown table styling for TABLE chunks */
+.markdown-table {
+  color: #d4d4d4;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.markdown-table h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: #e5e5e5;
+}
+
+.markdown-table table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #171717;
+}
+
+.markdown-table th,
+.markdown-table td {
+  border: 1px solid #404040;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.markdown-table th {
+  background: #262626;
+  font-weight: 600;
+  color: #e5e5e5;
+}
+
+.markdown-table tr:hover {
+  background: #1f1f1f;
+}
+
+.markdown-table strong {
+  font-weight: 600;
+  color: #e5e5e5;
+}
+
+.markdown-table p {
+  margin: 0.5rem 0;
+}

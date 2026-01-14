@@ -52,8 +52,8 @@ export default function UploadPage() {
             return;
         }
 
-        if (file.size > 50 * 1024 * 1024) {
-            setError('File too large. Maximum size is 50MB');
+        if (file.size > 100 * 1024 * 1024) {
+            setError('File too large. Maximum size is 100MB');
             return;
         }
 
@@ -115,6 +115,9 @@ export default function UploadPage() {
                         <Link href="/upload" className="text-white">
                             Upload
                         </Link>
+                        <Link href="/admin/tax-rates" className="text-neutral-400 hover:text-white transition-colors">
+                            Tax Rates
+                        </Link>
                     </div>
                 </div>
             </nav>
@@ -123,7 +126,7 @@ export default function UploadPage() {
             <main className="max-w-xl mx-auto px-6 py-16">
                 <h1 className="text-2xl font-semibold mb-2">Upload Document</h1>
                 <p className="text-neutral-500 text-sm mb-8">
-                    PDF, HTML, or TXT files up to 50MB
+                    PDF, HTML, or TXT files up to 100MB
                 </p>
 
                 <form onSubmit={handleSubmit}>
@@ -136,23 +139,21 @@ export default function UploadPage() {
                             <button
                                 type="button"
                                 onClick={() => setDocType('PERATURAN')}
-                                className={`flex-1 py-3 px-4 rounded-lg border transition-colors ${
-                                    docType === 'PERATURAN'
-                                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400'
-                                        : 'border-neutral-700 text-neutral-400 hover:border-neutral-500'
-                                }`}
+                                className={`flex-1 py-3 px-4 rounded-lg border transition-colors ${docType === 'PERATURAN'
+                                    ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400'
+                                    : 'border-neutral-700 text-neutral-400 hover:border-neutral-500'
+                                    }`}
                             >
                                 <div className="font-medium">Peraturan</div>
-                                <div className="text-xs opacity-70 mt-1">UU, PP, PMK, PER, SE</div>
+                                <div className="text-xs opacity-70 mt-1">UU, PP, PMK, PER, SE, ND</div>
                             </button>
                             <button
                                 type="button"
                                 onClick={() => setDocType('PUTUSAN')}
-                                className={`flex-1 py-3 px-4 rounded-lg border transition-colors ${
-                                    docType === 'PUTUSAN'
-                                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400'
-                                        : 'border-neutral-700 text-neutral-400 hover:border-neutral-500'
-                                }`}
+                                className={`flex-1 py-3 px-4 rounded-lg border transition-colors ${docType === 'PUTUSAN'
+                                    ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400'
+                                    : 'border-neutral-700 text-neutral-400 hover:border-neutral-500'
+                                    }`}
                             >
                                 <div className="font-medium">Putusan</div>
                                 <div className="text-xs opacity-70 mt-1">Putusan Pengadilan Pajak</div>
@@ -160,11 +161,10 @@ export default function UploadPage() {
                             <button
                                 type="button"
                                 onClick={() => setDocType('BUKU')}
-                                className={`flex-1 py-3 px-4 rounded-lg border transition-colors ${
-                                    docType === 'BUKU'
-                                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400'
-                                        : 'border-neutral-700 text-neutral-400 hover:border-neutral-500'
-                                }`}
+                                className={`flex-1 py-3 px-4 rounded-lg border transition-colors ${docType === 'BUKU'
+                                    ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400'
+                                    : 'border-neutral-700 text-neutral-400 hover:border-neutral-500'
+                                    }`}
                             >
                                 <div className="font-medium">Buku</div>
                                 <div className="text-xs opacity-70 mt-1">Buku Perpajakan</div>

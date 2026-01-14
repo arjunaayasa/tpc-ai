@@ -1,11 +1,11 @@
 /**
- * AI-Based Book Chunker using DeepSeek
+ * AI-Based Book Chunker using Qwen
  * OPTIMIZED: Single-pass structure detection + local splitting
  */
 
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
-const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
-const DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1';
+const QWEN_API_KEY = process.env.QWEN_API_KEY || '';
+const QWEN_MODEL = process.env.QWEN_MODEL || 'qwen-plus';
+const QWEN_BASE_URL = process.env.QWEN_BASE_URL || 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
 
 // Chunk size limits
 const TARGET_CHUNK_SIZE = 2500;
@@ -37,21 +37,21 @@ interface AIStructureResponse {
 }
 
 /**
- * Call DeepSeek API - single call
+ * Call Qwen API - single call
  */
-async function callDeepSeek(prompt: string, systemPrompt: string): Promise<string> {
-    if (!DEEPSEEK_API_KEY) {
-        throw new Error('DEEPSEEK_API_KEY not configured');
+async function callQwen(prompt: string, systemPrompt: string): Promise<string> {
+    if (!QWEN_API_KEY) {
+        throw new Error('QWEN_API_KEY not configured');
     }
 
-    const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+    const response = await fetch(`${QWEN_BASE_URL}/chat/completions`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
+            'Authorization': `Bearer ${QWEN_API_KEY}`,
         },
         body: JSON.stringify({
-            model: DEEPSEEK_MODEL,
+            model: QWEN_MODEL,
             messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: prompt },
@@ -64,7 +64,7 @@ async function callDeepSeek(prompt: string, systemPrompt: string): Promise<strin
 
     if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`DeepSeek API error: ${response.status} - ${errorText}`);
+        throw new Error(`Qwen API error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
@@ -107,7 +107,7 @@ Kembalikan JSON:
 
 Jika tidak menemukan struktur bab yang jelas, kembalikan outline kosong: { "outline": [] }`;
 
-    const resultText = await callDeepSeek(prompt, systemPrompt);
+    const resultText = await callQwen(prompt, systemPrompt);
     const result = JSON.parse(resultText) as AIStructureResponse;
 
     return result.outline || [];
@@ -325,5 +325,5 @@ function fallbackChunking(text: string, meta: BookMeta): BookChunk[] {
  * Check if API is available
  */
 export function isAIChunkingAvailable(): boolean {
-    return !!DEEPSEEK_API_KEY;
+    return !!QWEN_API_KEY;
 }
