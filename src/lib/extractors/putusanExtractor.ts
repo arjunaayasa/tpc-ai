@@ -442,6 +442,59 @@ function generateAnchorCitation(
 }
 
 /**
+ * Split large text into smaller overlapping chunks
+ */
+function splitLargeText(text: string, maxChars: number = 2000, overlap: number = 200): string[] {
+  if (text.length <= maxChars) return [text];
+
+  const chunks: string[] = [];
+  let start = 0;
+
+  while (start < text.length) {
+    let end = start + maxChars;
+
+    // If we are not at the end of text, try to break at a safe boundary (newline or space)
+    if (end < text.length) {
+      // Look back from 'end' to find a suitable break point
+      const lookbackLimit = Math.max(start, end - 500); // Don't look back too far
+      let breakPoint = -1;
+
+      // Prefer newline
+      const lastNewline = text.lastIndexOf('\n', end);
+      if (lastNewline > lookbackLimit) {
+        breakPoint = lastNewline;
+      } else {
+        // Fallback to space
+        const lastSpace = text.lastIndexOf(' ', end);
+        if (lastSpace > lookbackLimit) {
+          breakPoint = lastSpace;
+        }
+      }
+
+      if (breakPoint !== -1) {
+        end = breakPoint;
+      }
+    }
+
+    const chunkText = text.substring(start, end).trim();
+    if (chunkText.length > 0) {
+      chunks.push(chunkText);
+    }
+
+    // If we reached the end, stop
+    if (end >= text.length) break;
+
+    // Determine next start position
+    // If we found a clean break (space/newline), we want overlap relative to that
+    // But typically simply: start = end - overlap
+    // Ensure we always advance at least 1 char to avoid infinite loop
+    start = Math.max(start + 1, end - overlap);
+  }
+
+  return chunks;
+}
+
+/**
  * Build chunks from sections
  */
 function buildChunks(
@@ -451,6 +504,45 @@ function buildChunks(
   const chunks: PutusanChunk[] = [];
   let orderIndex = 0;
 
+  // Helper to add chunks with splitting
+  const addSplitChunks = (
+    baseAnchor: string,
+    chunkType: ChunkType,
+    chunkRole: ChunkRole,
+    title: string,
+    text: string,
+    parentId?: string
+  ) => {
+    const parts = splitLargeText(text);
+
+    parts.forEach((partText, idx) => {
+      let partTitle = title;
+      let partAnchor = baseAnchor;
+
+      if (parts.length > 1) {
+        partTitle = `${title} (Part ${idx + 1}/${parts.length})`;
+        partAnchor = `${baseAnchor} - Part ${idx + 1}`;
+      }
+
+      chunks.push({
+        anchorCitation: partAnchor,
+        chunkType,
+        role: chunkRole,
+        title: partTitle,
+        text: partText,
+        orderIndex: orderIndex++,
+        parentId: parentId,
+        legalRefs: extractLegalRefs(partText),
+        tokenEstimate: estimateTokens(partText),
+      });
+    });
+
+    // Return the anchor of the first part to serve as parentId for children
+    return parts.length > 0
+      ? (parts.length > 1 ? `${baseAnchor} - Part 1` : baseAnchor)
+      : baseAnchor;
+  };
+
   for (const section of sections) {
     const role = determineRole(section.type);
 
@@ -459,71 +551,45 @@ function buildChunks(
       const subsections = parseSubsections(section.text);
 
       if (subsections.length > 0) {
-        // Create parent section chunk
-        const parentChunk: PutusanChunk = {
-          anchorCitation: generateAnchorCitation(identity, section.type),
-          chunkType: 'SECTION',
-          role,
-          title: section.title,
-          text: section.text.substring(0, subsections[0].startOffset).trim() || section.title,
-          orderIndex: orderIndex++,
-          legalRefs: extractLegalRefs(section.text),
-          tokenEstimate: estimateTokens(section.text),
-        };
-        chunks.push(parentChunk);
+        // 1. Parent/Intro text
+        const parentText = section.text.substring(0, subsections[0].startOffset).trim() || section.title;
+        const parentAnchor = generateAnchorCitation(identity, section.type);
 
-        // Create subsection chunks
-        for (const sub of subsections) {
-          chunks.push({
-            anchorCitation: generateAnchorCitation(identity, section.type, `${sub.numeral}. ${sub.title}`),
-            chunkType: 'SUBSECTION',
-            role,
-            title: `${sub.numeral}. ${sub.title}`,
-            text: sub.text,
-            orderIndex: orderIndex++,
-            parentId: parentChunk.anchorCitation,
-            legalRefs: extractLegalRefs(sub.text),
-            tokenEstimate: estimateTokens(sub.text),
-          });
-        }
-      } else {
-        // No subsections, create single section chunk
-        chunks.push({
-          anchorCitation: generateAnchorCitation(identity, section.type),
-          chunkType: 'SECTION',
+        const effectiveParentId = addSplitChunks(
+          parentAnchor,
+          'SECTION',
           role,
-          title: section.title,
-          text: section.text,
-          orderIndex: orderIndex++,
-          legalRefs: extractLegalRefs(section.text),
-          tokenEstimate: estimateTokens(section.text),
-        });
+          section.title,
+          parentText
+        );
+
+        // 2. Subsection chunks
+        for (const sub of subsections) {
+          const subAnchor = generateAnchorCitation(identity, section.type, `${sub.numeral}. ${sub.title}`);
+          addSplitChunks(
+            subAnchor,
+            'SUBSECTION',
+            role,
+            `${sub.numeral}. ${sub.title}`,
+            sub.text,
+            effectiveParentId
+          );
+        }
+        continue;
       }
-    } else if (section.type === 'AMAR') {
-      // Amar section gets special treatment
-      chunks.push({
-        anchorCitation: generateAnchorCitation(identity, section.type),
-        chunkType: 'AMAR',
-        role: 'MAJELIS',
-        title: section.title,
-        text: section.text,
-        orderIndex: orderIndex++,
-        legalRefs: extractLegalRefs(section.text),
-        tokenEstimate: estimateTokens(section.text),
-      });
-    } else {
-      // Regular section
-      chunks.push({
-        anchorCitation: generateAnchorCitation(identity, section.type),
-        chunkType: 'SECTION',
-        role,
-        title: section.title,
-        text: section.text,
-        orderIndex: orderIndex++,
-        legalRefs: extractLegalRefs(section.text),
-        tokenEstimate: estimateTokens(section.text),
-      });
     }
+
+    // Default handling for simple sections
+    const anchor = generateAnchorCitation(identity, section.type);
+    const type: ChunkType = section.type === 'AMAR' ? 'AMAR' : 'SECTION';
+
+    addSplitChunks(
+      anchor,
+      type,
+      role,
+      section.title,
+      section.text
+    );
   }
 
   return chunks;

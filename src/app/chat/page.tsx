@@ -97,6 +97,16 @@ export default function ChatPage() {
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true); // Default dark
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
+  const [deepResearch, setDeepResearch] = useState(false); // Deep Research mode (uses Advanced RAG)
+  const [toast, setToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' } | null>(null);
+
+  const handleCopy = (text: string) => {
+    // Strip citations like [C1], [TR12]
+    const cleanText = text.replace(/ ?\[(?:C|TR)\d+\]/g, '').trim();
+    navigator.clipboard.writeText(cleanText);
+    setToast({ show: true, message: 'Berhasil disalin (tanpa sitasi)', type: 'success' });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -104,6 +114,9 @@ export default function ChatPage() {
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
   const messages = activeConversation?.messages || [];
+
+  // Deep Research is only available for thinking models
+  const supportsDeepResearch = selectedModel === 'owlie-thinking' || selectedModel === 'owlie-max';
 
   // --- Effects ---
   useEffect(() => {
@@ -222,6 +235,7 @@ export default function ChatPage() {
           mode: 'strict',
           enableThinking,
           model: selectedModel,
+          deepResearch: supportsDeepResearch && deepResearch, // Only enable if model supports it
         }),
       });
 
@@ -507,126 +521,153 @@ export default function ChatPage() {
                     </div>
                   )}
 
-                  <div className={`relative max-w-[85%] rounded-2xl px-6 py-4 shadow-sm ${message.role === 'user'
-                    ? isDarkMode
-                      ? 'bg-[#2b2d31] text-white rounded-tr-sm'
-                      : 'bg-blue-600 text-white rounded-tr-sm shadow-blue-200/50'
-                    : isDarkMode
-                      ? 'bg-transparent text-gray-100'
-                      : 'bg-white text-gray-800 border border-gray-100 shadow-sm'
-                    }`}>
-                    {/* Thinking Process */}
-                    {message.thinking && (
-                      <div className="mb-4">
-                        <button
-                          onClick={() => setConversations(prev => prev.map(c => ({ ...c, messages: c.messages.map(m => m.id === message.id ? { ...m, thinkingExpanded: !m.thinkingExpanded } : m) })))}
-                          className={`flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider mb-2 transition-colors ${isDarkMode ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'}`}
-                        >
-                          {message.isStreaming && message.streamingStage === 'thinking' ? (
-                            <span className="flex items-center gap-1.5 text-blue-500">
-                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-                              Sedang Berpikir
-                            </span>
-                          ) : (
-                            <span>Proses Berpikir</span>
-                          )}
-                          <svg className={`w-3 h-3 transition-transform ${message.thinkingExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                        </button>
+                  <div className={`flex flex-col max-w-[85%] gap-2`}>
+                    <div className={`relative px-6 py-4 rounded-2xl shadow-sm ${message.role === 'user'
+                      ? isDarkMode
+                        ? 'bg-[#2b2d31] text-white rounded-tr-sm'
+                        : 'bg-blue-600 text-white rounded-tr-sm shadow-blue-200/50'
+                      : isDarkMode
+                        ? 'bg-transparent text-gray-100'
+                        : 'bg-white text-gray-800 border border-gray-100 shadow-sm'
+                      }`}>
+                      {/* Thinking Process */}
+                      {message.thinking && (
+                        <div className="mb-4">
+                          <button
+                            onClick={() => setConversations(prev => prev.map(c => ({ ...c, messages: c.messages.map(m => m.id === message.id ? { ...m, thinkingExpanded: !m.thinkingExpanded } : m) })))}
+                            className={`flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider mb-2 transition-colors ${isDarkMode ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'}`}
+                          >
+                            {message.isStreaming && message.streamingStage === 'thinking' ? (
+                              <span className="flex items-center gap-1.5 text-blue-500">
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                                Sedang Berpikir
+                              </span>
+                            ) : (
+                              <span>Proses Berpikir</span>
+                            )}
+                            <svg className={`w-3 h-3 transition-transform ${message.thinkingExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                          </button>
 
-                        {(message.thinkingExpanded || (message.isStreaming && message.streamingStage === 'thinking')) && (
-                          <div className={`text-xs font-mono p-4 rounded-lg border border-l-4 overflow-x-auto ${isDarkMode
-                            ? 'bg-[#0d1117] border-[#30363d] border-l-blue-500 text-gray-300 font-mono shadow-inner'
-                            : 'bg-[#1e1e1e] border-gray-800 border-l-blue-500 text-green-400 font-mono shadow-inner'
-                            }`}>
-                            <div className="flex items-center gap-2 mb-2 border-b border-white/10 pb-2 text-[10px] opacity-70">
-                              <span>$ thinking_process.sh</span>
+                          {(message.thinkingExpanded || (message.isStreaming && message.streamingStage === 'thinking')) && (
+                            <div className={`text-xs font-mono p-4 rounded-lg border border-l-4 overflow-x-auto ${isDarkMode
+                              ? 'bg-[#0d1117] border-[#30363d] border-l-blue-500 text-gray-300 font-mono shadow-inner'
+                              : 'bg-[#1e1e1e] border-gray-800 border-l-blue-500 text-green-400 font-mono shadow-inner'
+                              }`}>
+                              <div className="flex items-center gap-2 mb-2 border-b border-white/10 pb-2 text-[10px] opacity-70">
+                                <span>$ thinking_process.sh</span>
+                              </div>
+                              <div className={`whitespace-pre-wrap ${message.isStreaming && message.streamingStage === 'thinking' ? 'animate-pulse' : ''}`} style={{
+                                background: message.isStreaming && message.streamingStage === 'thinking'
+                                  ? 'linear-gradient(90deg, currentColor 0%, rgba(100,150,255,0.7) 50%, currentColor 100%)'
+                                  : 'none',
+                                backgroundSize: '200% 100%',
+                                WebkitBackgroundClip: message.isStreaming && message.streamingStage === 'thinking' ? 'text' : 'unset',
+                                WebkitTextFillColor: message.isStreaming && message.streamingStage === 'thinking' ? 'transparent' : 'unset',
+                                animation: message.isStreaming && message.streamingStage === 'thinking' ? 'shimmer 2s linear infinite' : 'none',
+                              }}>
+                                {message.thinking}
+                              </div>
+                              {message.isStreaming && message.streamingStage === 'thinking' && <span className="inline-block w-1.5 h-3 bg-blue-500 ml-1 animate-pulse"></span>}
                             </div>
-                            <div className={`whitespace-pre-wrap ${message.isStreaming && message.streamingStage === 'thinking' ? 'animate-pulse' : ''}`} style={{
-                              background: message.isStreaming && message.streamingStage === 'thinking'
-                                ? 'linear-gradient(90deg, currentColor 0%, rgba(100,150,255,0.7) 50%, currentColor 100%)'
-                                : 'none',
-                              backgroundSize: '200% 100%',
-                              WebkitBackgroundClip: message.isStreaming && message.streamingStage === 'thinking' ? 'text' : 'unset',
-                              WebkitTextFillColor: message.isStreaming && message.streamingStage === 'thinking' ? 'transparent' : 'unset',
-                              animation: message.isStreaming && message.streamingStage === 'thinking' ? 'shimmer 2s linear infinite' : 'none',
-                            }}>
-                              {message.thinking}
-                            </div>
-                            {message.isStreaming && message.streamingStage === 'thinking' && <span className="inline-block w-1.5 h-3 bg-blue-500 ml-1 animate-pulse"></span>}
+                          )}
+                        </div>
+                      )}
+
+                      {/* Message Content with better spacing */}
+                      <div className={`prose prose-sm max-w-none leading-7 ${isDarkMode ? 'prose-invert prose-p:text-gray-200 prose-headings:text-gray-100 prose-strong:text-white' : 'prose-slate prose-p:text-gray-700'} ${isDarkMode ? '[&_p]:mb-4 [&_p:last-child]:mb-0' : '[&_p]:mb-4 [&_p:last-child]:mb-0'}`}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            p: ({ node, ...props }) => <p className="mb-4 last:mb-0 leading-7" {...props} />,
+                            li: ({ node, ...props }) => <li className="mb-1 leading-relaxed" {...props} />,
+                            code: ({ node, inline, className, children, ...props }: any) => {
+                              const match = /\[C(\d+)\]/.exec(String(children));
+                              if (inline && match) {
+                                return (
+                                  <span className={`inline-flex items-center justify-center h-5 px-1.5 rounded text-[10px] font-bold mx-0.5 cursor-help select-none transition-colors ${isDarkMode
+                                    ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30'
+                                    : 'bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100'
+                                    }`}>
+                                    {String(children).replace('[', '').replace(']', '')}
+                                  </span>
+                                );
+                              }
+                              return <code className={`${className} px-1.5 py-0.5 rounded text-sm font-mono ${isDarkMode ? 'bg-white/10 text-gray-300' : 'bg-gray-100 text-gray-800'}`} {...props}>{children}</code>;
+                            },
+                            table: ({ node, ...props }) => <div className={`overflow-x-auto my-4 rounded-lg border ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}><table className={`min-w-full divide-y ${isDarkMode ? 'divide-white/10' : 'divide-gray-200'}`} {...props} /></div>,
+                            thead: ({ node, ...props }) => <thead className={isDarkMode ? 'bg-white/5' : 'bg-gray-50'} {...props} />,
+                            th: ({ node, ...props }) => <th className={`px-3 py-2 text-left text-xs font-bold uppercase tracking-wider ${isDarkMode ? 'text-gray-200' : 'text-gray-600'}`} {...props} />,
+                            tbody: ({ node, ...props }) => <tbody className={`divide-y ${isDarkMode ? 'divide-white/10' : 'divide-gray-200'}`} {...props} />,
+                            tr: ({ node, ...props }) => <tr className={`transition-colors ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-gray-50/50'}`} {...props} />,
+                            td: ({ node, ...props }) => <td className={`px-3 py-2 text-sm whitespace-pre-wrap ${isDarkMode ? 'text-gray-100' : 'text-gray-700'}`} {...props} />,
+                          }}
+                        >
+                          {message.content.replace(/\[C(\d+)\]/g, ' `[C$1]` ')}
+                        </ReactMarkdown>
+
+                        {/* Typing Indicator */}
+                        {message.role === 'assistant' && message.isStreaming && !message.content && (
+                          <div className="flex gap-2 items-center py-3 px-2">
+                            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+                            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" style={{ animationDelay: '0.4s' }}></div>
                           </div>
                         )}
                       </div>
-                    )}
 
-                    {/* Message Content with better spacing */}
-                    <div className={`prose prose-sm max-w-none leading-7 ${isDarkMode ? 'prose-invert prose-p:text-gray-200 prose-headings:text-gray-100 prose-strong:text-white' : 'prose-slate prose-p:text-gray-700'} ${isDarkMode ? '[&_p]:mb-4 [&_p:last-child]:mb-0' : '[&_p]:mb-4 [&_p:last-child]:mb-0'}`}>
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          p: ({ node, ...props }) => <p className="mb-4 last:mb-0 leading-7" {...props} />,
-                          li: ({ node, ...props }) => <li className="mb-1 leading-relaxed" {...props} />,
-                          code: ({ node, inline, className, children, ...props }: any) => {
-                            const match = /\[C(\d+)\]/.exec(String(children));
-                            if (inline && match) {
-                              return (
-                                <span className={`inline-flex items-center justify-center h-5 px-1.5 rounded text-[10px] font-bold mx-0.5 cursor-help select-none transition-colors ${isDarkMode
-                                  ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30'
-                                  : 'bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100'
-                                  }`}>
-                                  {String(children).replace('[', '').replace(']', '')}
-                                </span>
-                              );
-                            }
-                            return <code className={`${className} px-1.5 py-0.5 rounded text-sm font-mono ${isDarkMode ? 'bg-white/10 text-gray-300' : 'bg-gray-100 text-gray-800'}`} {...props}>{children}</code>;
-                          },
-                          table: ({ node, ...props }) => <div className={`overflow-x-auto my-4 rounded-lg border ${isDarkMode ? 'border-white/10' : 'border-gray-200'}`}><table className={`min-w-full divide-y ${isDarkMode ? 'divide-white/10' : 'divide-gray-200'}`} {...props} /></div>,
-                          thead: ({ node, ...props }) => <thead className={isDarkMode ? 'bg-white/5' : 'bg-gray-50'} {...props} />,
-                          th: ({ node, ...props }) => <th className={`px-3 py-2 text-left text-xs font-bold uppercase tracking-wider ${isDarkMode ? 'text-gray-200' : 'text-gray-600'}`} {...props} />,
-                          tbody: ({ node, ...props }) => <tbody className={`divide-y ${isDarkMode ? 'divide-white/10' : 'divide-gray-200'}`} {...props} />,
-                          tr: ({ node, ...props }) => <tr className={`transition-colors ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-gray-50/50'}`} {...props} />,
-                          td: ({ node, ...props }) => <td className={`px-3 py-2 text-sm whitespace-pre-wrap ${isDarkMode ? 'text-gray-100' : 'text-gray-700'}`} {...props} />,
-                        }}
-                      >
-                        {message.content.replace(/\[C(\d+)\]/g, ' `[C$1]` ')}
-                      </ReactMarkdown>
+                      {/* Citations Button */}
+                      {message.citations && message.citations.length > 0 && (
+                        <div className={`mt-4 pt-3 border-t ${isDarkMode ? 'border-white/10' : 'border-gray-100'}`}>
+                          <button
+                            onClick={() => setConversations(prev => prev.map(c => ({ ...c, messages: c.messages.map(m => m.id === message.id ? { ...m, citationsExpanded: !m.citationsExpanded } : m) })))}
+                            className={`flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-lg transition-colors ${isDarkMode ? 'bg-white/5 text-gray-300 hover:bg-white/10' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+                            {message.citations.length} Referensi
+                            <svg className={`w-3 h-3 ml-auto transition-transform ${message.citationsExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                          </button>
 
-                      {/* Typing Indicator */}
-                      {message.role === 'assistant' && message.isStreaming && !message.content && (
-                        <div className="flex gap-2 items-center py-3 px-2">
-                          <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
-                          <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" style={{ animationDelay: '0.2s' }}></div>
-                          <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+                          {message.citationsExpanded && (
+                            <div className="mt-3 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                              {message.citations.map((cit, idx) => (
+                                <div key={idx} className={`p-3 rounded-lg text-xs border ${isDarkMode ? 'bg-black/20 border-white/5 text-gray-400' : 'bg-white border-gray-200 text-gray-600'}`}>
+                                  <div className={`font-semibold mb-1 text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                                    {cit.jenis === 'BUKU' && cit.judul
+                                      ? `${cit.judul}${cit.tahun ? ` (${cit.tahun})` : ''}`
+                                      : `${cit.jenis}${cit.nomor ? ` ${cit.nomor}` : ''}${cit.tahun ? ` Tahun ${cit.tahun}` : ''}`
+                                    }
+                                  </div>
+                                  <div className="line-clamp-2 opacity-80">{cit.anchorCitation}</div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
-
-                    {/* Citations Button */}
-                    {message.citations && message.citations.length > 0 && (
-                      <div className={`mt-4 pt-3 border-t ${isDarkMode ? 'border-white/10' : 'border-gray-100'}`}>
+                    {/* Action Buttons Row */}
+                    {message.role === 'assistant' && !message.isStreaming && (
+                      <div className="flex items-center gap-1 px-1">
                         <button
-                          onClick={() => setConversations(prev => prev.map(c => ({ ...c, messages: c.messages.map(m => m.id === message.id ? { ...m, citationsExpanded: !m.citationsExpanded } : m) })))}
-                          className={`flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-lg transition-colors ${isDarkMode ? 'bg-white/5 text-gray-300 hover:bg-white/10' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                          onClick={() => handleCopy(message.content)}
+                          className={`p-1.5 rounded-md transition-colors ${isDarkMode ? 'text-gray-400 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'}`}
+                          title="Copy"
                         >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
-                          {message.citations.length} Referensi
-                          <svg className={`w-3 h-3 ml-auto transition-transform ${message.citationsExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
                         </button>
-
-                        {message.citationsExpanded && (
-                          <div className="mt-3 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                            {message.citations.map((cit, idx) => (
-                              <div key={idx} className={`p-3 rounded-lg text-xs border ${isDarkMode ? 'bg-black/20 border-white/5 text-gray-400' : 'bg-white border-gray-200 text-gray-600'}`}>
-                                <div className={`font-semibold mb-1 text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
-                                  {cit.jenis === 'BUKU' && cit.judul
-                                    ? `${cit.judul}${cit.tahun ? ` (${cit.tahun})` : ''}`
-                                    : `${cit.jenis}${cit.nomor ? ` ${cit.nomor}` : ''}${cit.tahun ? ` Tahun ${cit.tahun}` : ''}`
-                                  }
-                                </div>
-                                <div className="line-clamp-2 opacity-80">{cit.anchorCitation}</div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                        <button className={`p-1.5 rounded-md transition-colors ${isDarkMode ? 'text-gray-400 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'}`}>
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" /></svg>
+                        </button>
+                        <button className={`p-1.5 rounded-md transition-colors ${isDarkMode ? 'text-gray-400 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'}`}>
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.095c.5 0 .905-.405.905-.905 0-.714.211-1.412.608-2.006L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" /></svg>
+                        </button>
+                        <button
+                          onClick={() => setInput(message.content)}
+                          className={`p-1.5 rounded-md transition-colors ${isDarkMode ? 'text-gray-400 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'}`}
+                          title="Regenerate (Edit)"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                        </button>
                       </div>
                     )}
                   </div>
@@ -642,74 +683,123 @@ export default function ChatPage() {
           <div className="max-w-3xl mx-auto">
             <form
               onSubmit={handleSubmit}
-              className={`relative flex items-end gap-2 p-1.5 rounded-[2rem] border shadow-lg backdrop-blur-xl transition-all ${isDarkMode
+              className={`relative flex flex-col rounded-[1.5rem] border shadow-lg backdrop-blur-xl transition-all ${isDarkMode
                 ? 'bg-[#16181d]/90 border-white/10 focus-within:border-blue-500/50'
                 : 'bg-white border-gray-200 focus-within:border-blue-400 focus-within:shadow-md'
                 }`}
             >
-              <div className="pl-3 pb-2">
-                {/* Thinking Toggle Dropdown */}
+              {/* Textarea Row */}
+              <div className="flex items-end px-4 pt-3">
+                <div className="flex-1 min-h-[24px]">
+                  <textarea
+                    ref={inputRef}
+                    rows={1}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Ketik pertanyaan pajak Anda..."
+                    className={`w-full bg-transparent border-none focus:ring-0 outline-none resize-none max-h-[200px] text-sm leading-relaxed ${isDarkMode ? 'text-white placeholder-gray-500' : 'text-gray-800 placeholder-gray-400'}`}
+                    disabled={isLoading}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={!input.trim() || isLoading}
+                  className={`p-2 ml-2 rounded-full transition-all duration-300 flex-shrink-0 ${input.trim() && !isLoading
+                    ? 'bg-blue-600 text-white hover:bg-blue-500'
+                    : isDarkMode ? 'bg-white/5 text-gray-600 cursor-not-allowed' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    }`}
+                >
+                  {isLoading ? (
+                    <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                  ) : (
+                    <svg className="w-5 h-5 transform rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                  )}
+                </button>
+              </div>
+
+              {/* Controls Row - ChatGPT Style */}
+              <div className={`flex items-center gap-1 px-3 pb-2.5 pt-2 transition-all duration-300`}>
+                {/* Plus Button */}
                 <div className="relative">
                   <button
                     type="button"
                     onClick={() => setThinkingDropdownOpen(!thinkingDropdownOpen)}
-                    className={`p-2 rounded-full transition-colors ${enableThinking ? 'text-blue-500 bg-blue-500/10' : 'text-gray-400 hover:text-gray-600'}`}
-                    title="Mode Berpikir"
+                    className={`p-1.5 rounded-lg transition-colors ${thinkingDropdownOpen ? (isDarkMode ? 'bg-white/10' : 'bg-gray-100') : ''} ${isDarkMode ? 'text-gray-400 hover:text-gray-200 hover:bg-white/10' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+                    title="Menu"
                   >
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
                   </button>
 
                   {thinkingDropdownOpen && (
                     <>
                       <div className="fixed inset-0 z-30" onClick={() => setThinkingDropdownOpen(false)}></div>
-                      <div className={`absolute bottom-full left-0 mb-2 w-48 p-1 rounded-xl border shadow-xl backdrop-blur-xl z-40 ${isDarkMode ? 'bg-[#1e2025] border-white/10' : 'bg-white border-gray-200'}`}>
+                      <div className={`absolute bottom-full left-0 mb-2 w-56 p-1.5 rounded-xl border shadow-xl backdrop-blur-xl z-40 ${isDarkMode ? 'bg-[#1e2025] border-white/10' : 'bg-white border-gray-200'}`}>
                         <button
                           type="button"
-                          onClick={() => { setEnableThinking(true); setThinkingDropdownOpen(false); }}
-                          className={`w-full flex items-center gap-2 p-2 rounded-lg text-sm ${enableThinking ? (isDarkMode ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-50 text-blue-600') : (isDarkMode ? 'text-gray-400 hover:bg-white/5' : 'text-gray-600 hover:bg-gray-50')}`}
+                          onClick={() => { setEnableThinking(!enableThinking); }}
+                          className={`w-full flex items-center gap-3 p-2.5 rounded-lg text-sm transition-colors ${isDarkMode ? 'text-gray-300 hover:bg-white/5' : 'text-gray-700 hover:bg-gray-50'}`}
                         >
-                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span> Thinking Mode
+                          <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                          </svg>
+                          <span className="flex-1 text-left">Thinking mode</span>
+                          {enableThinking && <span className="w-2 h-2 rounded-full bg-blue-500"></span>}
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => { setEnableThinking(false); setThinkingDropdownOpen(false); }}
-                          className={`w-full flex items-center gap-2 p-2 rounded-lg text-sm ${!enableThinking ? (isDarkMode ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-900') : (isDarkMode ? 'text-gray-400 hover:bg-white/5' : 'text-gray-600 hover:bg-gray-50')}`}
-                        >
-                          <span className="w-1.5 h-1.5 rounded-full bg-gray-400"></span> Standard Mode
-                        </button>
+
+                        {supportsDeepResearch && (
+                          <button
+                            type="button"
+                            onClick={() => { setDeepResearch(!deepResearch); setThinkingDropdownOpen(false); }}
+                            className={`w-full flex items-center gap-3 p-2.5 rounded-lg text-sm transition-colors ${deepResearch ? (isDarkMode ? 'bg-amber-500/10' : 'bg-amber-50') : ''} ${isDarkMode ? 'text-gray-300 hover:bg-white/5' : 'text-gray-700 hover:bg-gray-50'}`}
+                          >
+                            <svg className="w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7" />
+                            </svg>
+                            <span className="flex-1 text-left">Deep research</span>
+                            {deepResearch && <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>}
+                          </button>
+                        )}
                       </div>
                     </>
                   )}
                 </div>
-              </div>
 
-              <div className="flex-1 min-h-[44px] flex items-center mb-1">
-                <textarea
-                  ref={inputRef}
-                  rows={1}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Ketik pertanyaan pajak Anda..."
-                  className={`w-full bg-transparent border-none focus:ring-0 outline-none resize-none max-h-[200px] py-2 text-sm ${isDarkMode ? 'text-white placeholder-gray-500' : 'text-gray-800 placeholder-gray-400'}`}
-                  disabled={isLoading}
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={!input.trim() || isLoading}
-                className={`p-2.5 m-1 rounded-full transition-all duration-300 ${input.trim() && !isLoading
-                  ? 'bg-blue-600 text-white hover:bg-blue-500'
-                  : isDarkMode ? 'bg-white/5 text-gray-600 cursor-not-allowed' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                  }`}
-              >
-                {isLoading ? (
-                  <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                ) : (
-                  <svg className="w-5 h-5 transform rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                {/* Deep Research Button - Like ChatGPT's "Research" */}
+                {supportsDeepResearch && (
+                  <button
+                    type="button"
+                    onClick={() => setDeepResearch(!deepResearch)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-sm font-medium transition-all ${deepResearch
+                      ? isDarkMode ? 'text-amber-400' : 'text-amber-600'
+                      : isDarkMode ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                  >
+                    <svg className={`w-4 h-4 ${deepResearch ? 'text-amber-500' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    <span>Research</span>
+                    {deepResearch && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>}
+                  </button>
                 )}
-              </button>
+
+                {/* Thinking Mode Indicator */}
+                {enableThinking && (
+                  <button
+                    type="button"
+                    onClick={() => setEnableThinking(!enableThinking)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-sm font-medium transition-all ${isDarkMode ? 'text-blue-400' : 'text-blue-600'
+                      }`}
+                  >
+                    <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    </svg>
+                    <span>Thinking</span>
+                  </button>
+                )}
+              </div>
             </form>
             <div className={`text-center mt-3 text-[10px] ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}>
               Owlie dapat membuat kesalahan. Cek kembali informasi penting.
@@ -717,6 +807,21 @@ export default function ChatPage() {
           </div>
         </div>
       </main>
+      {/* Toast Notification */}
+      {toast && toast.show && (
+        <div className={`fixed bottom-10 left-1/2 transform -translate-x-1/2 px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-300 ${toast.type === 'success'
+          ? isDarkMode ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+          : isDarkMode ? ' bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-red-50 text-red-600 border border-red-200'
+          }`}>
+          {toast.type === 'success' ? (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+          ) : (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          )}
+          <span className="text-sm font-medium">{toast.message}</span>
+        </div>
+      )}
+
     </div>
   );
 }

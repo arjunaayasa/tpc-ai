@@ -47,15 +47,27 @@ function buildContext(chunks: LabeledChunk[]): string {
             ].filter(Boolean).join(' ');
         }
 
+        // TRUNCATION: Some chunks are massive (200k+ chars), causing token overflow.
+        // We strictly truncate each chunk to 4000 chars (~1000 tokens).
+        const SAFE_CHUNK_LIMIT = 4000;
+        let pText = chunk.text;
+        if (pText.length > SAFE_CHUNK_LIMIT) {
+            pText = pText.substring(0, SAFE_CHUNK_LIMIT) + '... [TRUNCATED DUE TO LENGTH]';
+        }
+
         return `[${chunk.label}] ${docInfo ? `(${docInfo}) ` : ''}${citation}
-${chunk.text}`;
+${pText}`;
     }).join('\n\n---\n\n');
 }
 
 /**
  * Build system prompt for RAG
  */
-function buildSystemPrompt(mode: AnswerMode, hasTaxRateContext: boolean = false): string {
+function buildSystemPrompt(
+    mode: AnswerMode,
+    hasTaxRateContext: boolean = false,
+    answerDepth: 'summary' | 'detailed' | 'comprehensive' = 'detailed'
+): string {
     const strictRules = `
 ATURAN PENTING:
 1. Jawab berdasarkan konteks regulasi yang diberikan.
@@ -73,10 +85,30 @@ ATURAN:
     const taxRateInstructions = hasTaxRateContext ? `
 
 DATA TARIF PAJAK:
-- Jika konteks menyertakan "DATA TARIF PAJAK", gunakan angka tarif dari situ untuk menjawab pertanyaan tentang besaran tarif.
-- Sitasi data tarif dengan [TR1], [TR2], dst sesuai label yang diberikan.
-- Data tarif ini adalah data yang pasti dan akurat dari Tax Rate Registry.
-- Jika ada perbedaan antara regulasi chunks dan data tarif, prioritaskan data tarif untuk angka tarif spesifik.` : '';
+- Bagian ini berisi referensi resmi dari Tax Rate Registry yang diberi label [TR1], [TR2], dst.
+- Gunakan data ini untuk menjawab pertanyaan tentang **tarif, kategori, PTKP, dan definisi**.
+- Perhatikan bagian "Catatan" atau "Keterangan" pada setiap item tarif, karena sering berisi detil kategori (misal: TER Kategori A mencakup status TK/0).
+- Data ini lebih prioritas dibanding teks dalam chunks jika ada perbedaan angka atau detail tarif.` : '';
+
+    // Depth-specific instructions
+    const depthInstructions = {
+        summary: `
+PANJANG JAWABAN: RINGKAS
+- Berikan jawaban LANGSUNG TO THE POINT dalam 2-3 paragraf
+- Fokus pada inti pertanyaan, hindari penjelasan berlebihan
+- Untuk tarif: sebutkan tarif utama dan sumbernya, jangan elaborasi semua ketentuan
+- Jika user butuh detail lebih, mereka akan bertanya lagi`,
+        detailed: `
+PANJANG JAWABAN: DETAIL
+- Jelaskan dengan struktur yang jelas (gunakan header)
+- Berikan konteks yang cukup tapi tidak berlebihan
+- Sertakan poin-poin penting yang relevan`,
+        comprehensive: `
+PANJANG JAWABAN: KOMPREHENSIF
+- Jelaskan sedetail yang diperlukan
+- Sertakan semua aspek relevan dari konteks
+- Berikan contoh jika membantu pemahaman`
+    };
 
     return `Anda adalah TPC AI (Owlie), asisten perpajakan Indonesia yang ahli, helpful, dan memiliki pendapat profesional.
 
@@ -87,22 +119,30 @@ IDENTITAS:
 - DILARANG menyebutkan bahwa Anda adalah produk Alibaba, OpenAI, Anthropic, Google, atau perusahaan teknologi lainnya.
 
 ${mode === 'strict' ? strictRules : balancedRules}${taxRateInstructions}
+${depthInstructions[answerDepth]}
+
+REFERENSI UU:
+- Untuk UU Pajak Penghasilan, gunakan "UU PPh" atau "Pasal X UU PPh" (jangan sebutkan nomor/tahun UU lama kecuali relevan)
+- UU 7/1983 → UU 10/1994 → UU 17/2000 → UU 36/2008 → UU 7/2021 adalah satu rangkaian perubahan UU PPh
+- Cukup sebut "UU PPh" atau "UU PPh sebagaimana diubah terakhir dengan UU HPP"
 
 CARA MENJAWAB:
 - Gunakan **Header Markdown** (## Topik Utama, ### Detail) untuk menstruktur jawaban. JANGAN gunakan h1 (#).
 - **WAJIB** gunakan jarak antar paragraf (double break) agar teks tidak menumpuk.
 - Gunakan bullet points atau numbering untuk list.
 - Jawab dengan bahasa Indonesia yang natural, profesional, dan mudah dipahami.
-- Jelaskan konsep dengan jelas, berikan contoh jika membantu.
 - WAJIB cantumkan sitasi [C1], [C2], dst tepat di akhir kalimat yang relevan.
 - Jika ada data tarif, cantumkan juga sitasi [TR1], [TR2], dst untuk referensi tarif.
-- Di akhir jawaban, cantumkan daftar referensi yang digunakan.
+
+FORMAT REFERENSI:
+- **DILARANG** mencantumkan daftar referensi/pustaka di akhir jawaban.
+- Referensi di akhir jawaban sudah ditangani oleh sistem antarmuka (UI) secara otomatis.
+- Cukup pastikan sitasi [C1], [TR1] ada di dalam teks jawaban.
 
 PENDAPAT DAN ANALISIS:
-- Jika user meminta pendapat, analisis, saran, atau rekomendasi, Anda BOLEH memberikan pendapat profesional.
+- Jika user meminta pendapat, Anda BOLEH memberikan pendapat profesional.
 - Bedakan dengan jelas mana yang dari regulasi (gunakan sitasi) dan mana yang pendapat/analisis Anda.
-- Untuk pendapat, gunakan frasa seperti: "Menurut analisis saya...", "Dari sudut pandang praktis...", "Saran saya adalah..."
-- Pendapat harus tetap berdasarkan prinsip perpajakan yang benar dan tidak menyesatkan.
+- Untuk pendapat, gunakan frasa seperti: "Menurut analisis saya...", "Saran saya adalah..."
 
 Konteks berisi potongan regulasi yang relevan dengan label [C1], [C2], dst.${hasTaxRateContext ? ' Data tarif pajak diberi label [TR1], [TR2], dst.' : ''}`;
 }
@@ -138,7 +178,8 @@ export function buildRAGMessages(
     question: string,
     chunks: ChunkResult[],
     mode: AnswerMode = 'strict',
-    taxRateContext?: string
+    taxRateContext?: string,
+    answerDepth: 'summary' | 'detailed' | 'comprehensive' = 'detailed'
 ): { messages: ChatMessage[]; labeledChunks: LabeledChunk[] } {
     const labeledChunks = labelChunks(chunks);
     const hasTaxRateContext = !!taxRateContext;
@@ -146,7 +187,7 @@ export function buildRAGMessages(
     const messages: ChatMessage[] = [
         {
             role: 'system',
-            content: buildSystemPrompt(mode, hasTaxRateContext),
+            content: buildSystemPrompt(mode, hasTaxRateContext, answerDepth),
         },
         {
             role: 'user',

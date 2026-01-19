@@ -88,7 +88,7 @@ async function extractWithPdfplumber(filePath: string): Promise<string> {
  * Extract text from scanned PDF using Tesseract OCR
  * Requires: Tesseract OCR and Poppler installed
  */
-async function extractWithOcr(filePath: string): Promise<string> {
+async function extractWithOcr(filePath: string): Promise<{ text: string; quality: number }> {
     const scriptPath = path.join(process.cwd(), 'scripts', 'ocr_pdf.py');
 
     if (!require('fs').existsSync(scriptPath)) {
@@ -114,7 +114,7 @@ async function extractWithOcr(filePath: string): Promise<string> {
         }
 
         console.log(`[Extraction] OCR extracted ${parsed.chars} chars from ${parsed.pages} pages (quality: ${(parsed.quality * 100).toFixed(0)}%)`);
-        return parsed.text;
+        return { text: parsed.text, quality: parsed.quality };
     } catch (error) {
         console.error('[Extraction] OCR failed:', error);
         throw error;
@@ -178,6 +178,11 @@ export async function extractPdfText(filePath: string): Promise<string> {
         const quality = detectTextQuality(text);
         console.log(`[Extraction] pdf-parse quality: ${(quality.score * 100).toFixed(0)}%${quality.issues.length > 0 ? ' - ' + quality.issues.join(', ') : ''}`);
 
+        // Track all extraction attempts for comparison
+        let bestText = text;
+        let bestQuality = quality.score;
+        let bestMethod = 'pdf-parse';
+
         // If quality is low, try pdfplumber fallback
         if (quality.score < QUALITY_THRESHOLD) {
             console.log(`[Extraction] Quality below threshold (${(QUALITY_THRESHOLD * 100).toFixed(0)}%), trying pdfplumber...`);
@@ -186,16 +191,43 @@ export async function extractPdfText(filePath: string): Promise<string> {
                 const pdfplumberQuality = detectTextQuality(pdfplumberText);
                 console.log(`[Extraction] pdfplumber quality: ${(pdfplumberQuality.score * 100).toFixed(0)}%`);
 
-                // Use pdfplumber result if it's better
-                if (pdfplumberQuality.score > quality.score) {
-                    console.log(`[Extraction] Using pdfplumber result (better quality)`);
-                    text = fixPdfTextSpacing(pdfplumberText);
-                } else {
-                    console.log(`[Extraction] Keeping pdf-parse result (pdfplumber not better)`);
+                // Update best if pdfplumber is better
+                if (pdfplumberQuality.score > bestQuality) {
+                    bestText = fixPdfTextSpacing(pdfplumberText);
+                    bestQuality = pdfplumberQuality.score;
+                    bestMethod = 'pdfplumber';
                 }
             } catch (pdfplumberError) {
-                console.warn(`[Extraction] pdfplumber fallback failed, using pdf-parse result:`, pdfplumberError);
+                console.warn(`[Extraction] pdfplumber fallback failed:`, pdfplumberError);
             }
+
+            // If still below threshold, try OCR
+            if (bestQuality < QUALITY_THRESHOLD) {
+                console.log(`[Extraction] Quality still below threshold (${(bestQuality * 100).toFixed(0)}%), trying OCR...`);
+                try {
+                    const ocrResult = await extractWithOcr(filePath);
+                    if (ocrResult.text && ocrResult.text.trim().length > 50) {
+                        // Use OCR's built-in quality (from Tesseract confidence) - it's more accurate for OCR
+                        const ocrDetectedQuality = detectTextQuality(ocrResult.text);
+                        // Use the higher of OCR's built-in quality or detected quality
+                        const effectiveOcrQuality = Math.max(ocrResult.quality, ocrDetectedQuality.score);
+                        console.log(`[Extraction] OCR quality: ${(effectiveOcrQuality * 100).toFixed(0)}% (OCR: ${(ocrResult.quality * 100).toFixed(0)}%, detected: ${(ocrDetectedQuality.score * 100).toFixed(0)}%)`);
+
+                        // Update best if OCR is better
+                        if (effectiveOcrQuality > bestQuality) {
+                            bestText = fixPdfTextSpacing(ocrResult.text);
+                            bestQuality = effectiveOcrQuality;
+                            bestMethod = 'ocr';
+                        }
+                    }
+                } catch (ocrError) {
+                    console.warn(`[Extraction] OCR fallback failed:`, ocrError);
+                }
+            }
+
+            // Log final decision
+            console.log(`[Extraction] Using ${bestMethod} result (quality: ${(bestQuality * 100).toFixed(0)}%)`);
+            text = bestText;
         }
 
         // Final fallback: OCR for scanned PDFs (when text is empty or minimal)
@@ -203,10 +235,10 @@ export async function extractPdfText(filePath: string): Promise<string> {
         if (trimmedText.length < 100) {
             console.log(`[Extraction] Text too short (${trimmedText.length} chars), trying OCR for scanned PDF...`);
             try {
-                const ocrText = await extractWithOcr(filePath);
-                if (ocrText && ocrText.trim().length > trimmedText.length) {
-                    console.log(`[Extraction] Using OCR result (${ocrText.trim().length} chars)`);
-                    text = ocrText;
+                const ocrResult = await extractWithOcr(filePath);
+                if (ocrResult.text && ocrResult.text.trim().length > trimmedText.length) {
+                    console.log(`[Extraction] Using OCR result (${ocrResult.text.trim().length} chars)`);
+                    text = ocrResult.text;
                 }
             } catch (ocrError) {
                 console.warn(`[Extraction] OCR fallback failed:`, ocrError);

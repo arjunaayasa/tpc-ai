@@ -28,7 +28,7 @@ const TAX_RATE_KEYWORDS = [
 ];
 
 // Categories to exclude from auto-fetching (e.g., PTKP is an amount, not rate)
-const RATE_CATEGORIES = ['PPN', 'PPh21', 'TER', 'PPh23', 'PPh26', 'PPhBadan', 'PPhFinal'];
+const RATE_CATEGORIES = ['PPN', 'PPh21', 'TER', 'PPh23', 'PPh26', 'PPhBadan', 'PPhFinal', 'PKP'];
 
 export interface TaxRateContextItem {
     label: string;  // TR1, TR2, etc.
@@ -97,6 +97,12 @@ export function detectRelevantCategories(question: string): string[] {
     }
     if (q.includes('pph final') || q.includes('final') || q.includes('sewa') || q.includes('umkm')) {
         categories.push('PPhFinal');
+    }
+    if (q.includes('umkm') || q.includes('usaha mikro') || q.includes('usaha kecil')) {
+        categories.push('PPhFinal');
+    }
+    if (q.includes('pkp') || q.includes('pengusaha kena pajak') || q.includes('dikukuhkan')) {
+        categories.push('PKP');
     }
 
     // If no specific category detected but has rate keywords, return common ones

@@ -100,21 +100,22 @@ enum ChunkRole {
 }
 
 model Document {
-  id           String             @id @default(uuid())
-  fileName     String
-  originalName String
-  mimeType     String
-  filePath     String
-  sha256       String             @unique
-  docType      DocumentType       @default(PERATURAN)
-  status       DocumentStatus     @default(uploaded)
-  lastError    String?
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-  metadata     DocumentMetadata?
-  content      DocumentContent?
-  chunks       RegulationChunk[]
-  tables       DocumentTable[]
+  id             String             @id @default(uuid())
+  fileName       String
+  originalName   String
+  mimeType       String
+  filePath       String
+  sha256         String             @unique
+  docType        DocumentType       @default(PERATURAN)
+  status         DocumentStatus     @default(uploaded)
+  isActiveForRAG Boolean            @default(true)  // Toggle for RAG inclusion
+  lastError      String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  metadata       DocumentMetadata?
+  content        DocumentContent?
+  chunks         RegulationChunk[]
+  tables         DocumentTable[]
 }
 
 model DocumentMetadata {

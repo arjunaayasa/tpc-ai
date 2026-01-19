@@ -58,6 +58,7 @@ const categories: CategorySeed[] = [
     { code: 'PPhBadan', name: 'PPh Badan', description: 'Corporate Income Tax' },
     { code: 'PPhFinal', name: 'PPh Final (Pasal 4 ayat 2)', description: 'Final income tax on specific transactions' },
     { code: 'PPnBM', name: 'Pajak Penjualan Barang Mewah', description: 'Luxury Goods Sales Tax' },
+    { code: 'PKP', name: 'Pengusaha Kena Pajak', description: 'VAT registration threshold' },
 ];
 
 // ============== RULES ==============
@@ -567,6 +568,18 @@ const rules: RuleSeed[] = [
         effectiveFrom: DATE_2022_01,
         sourceRef: 'PP 34/2016',
         notes: 'PPh Final 2.5% atas pengalihan hak atas tanah dan/atau bangunan',
+    },
+
+    // ===== PKP Threshold =====
+    {
+        categoryCode: 'PKP',
+        name: 'Threshold PKP (Pengusaha Kena Pajak)',
+        objectCode: 'PKP_THRESHOLD',
+        rateType: TaxRateType.FLAT,
+        rateValue: 4800000000, // Rp 4.8 Miliar
+        effectiveFrom: DATE_2022_01,
+        sourceRef: 'PMK 197/PMK.03/2013',
+        notes: 'Pengusaha dengan peredaran bruto >Rp4,8 Miliar/tahun wajib dikukuhkan sebagai PKP',
     },
 ];
 

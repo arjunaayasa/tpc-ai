@@ -19,6 +19,7 @@ import {
     buildCitationList,
 } from '@/lib/prompt';
 import { getTaxRateContextForQuestion, TaxRateContextItem } from '@/lib/tax/taxRateContext';
+import { streamAdvancedRAG, extractCitedSources } from '@/lib/rag/orchestrator';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutes for streaming
@@ -81,6 +82,7 @@ const streamRequestSchema = z.object({
     mode: z.enum(['strict', 'balanced']).default('strict'),
     enableThinking: z.boolean().default(true),
     model: z.enum(['owlie-loc', 'owlie-chat', 'owlie-thinking', 'owlie-max']).default('owlie-loc'),
+    deepResearch: z.boolean().default(false), // Uses Advanced RAG orchestrator
     history: z.array(z.object({
         role: z.enum(['user', 'assistant']),
         content: z.string()
@@ -204,7 +206,7 @@ export async function POST(request: NextRequest) {
             });
         }
 
-        const { question, topK, filters, mode, enableThinking, model, history } = parseResult.data;
+        const { question, topK, filters, mode, enableThinking, model, deepResearch, history } = parseResult.data;
         const modelInfo = getModelInfo(model as OwlieModel);
 
         // Create SSE stream
@@ -224,9 +226,28 @@ export async function POST(request: NextRequest) {
 
                     // Use AI to generate natural casual response with history
                     const baseCasualMessages = buildCasualMessages(question);
+
+                    // --- TRUNCATION LOGIC (Refactor to shared helper later) ---
+                    const MAX_HISTORY_CHARS_CASUAL = 50000; // stricter for casual interaction
+                    let historyCharsCasual = 0;
+                    const safeHistoryCasual = [];
+
+                    for (let i = history.length - 1; i >= 0; i--) {
+                        const msg = history[i];
+                        const contentStr = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+                        const len = contentStr.length;
+
+                        if (historyCharsCasual + len < MAX_HISTORY_CHARS_CASUAL) {
+                            safeHistoryCasual.unshift(msg);
+                            historyCharsCasual += len;
+                        } else {
+                            break;
+                        }
+                    }
+
                     const casualMessages = [
                         baseCasualMessages[0], // System
-                        ...history,
+                        ...safeHistoryCasual,
                         baseCasualMessages[1]  // User
                     ];
                     let answerContent = '';
@@ -250,8 +271,8 @@ export async function POST(request: NextRequest) {
                             thinkingContent += chunk.text;
                             send('thinking', { token: chunk.text, content: thinkingContent });
                         } else if (chunk.type === 'content') {
-                            // Switch to answering when content starts
-                            if (!answerContent && thinkingContent) {
+                            if (thinkingContent && answerContent === '') {
+                                // Transition from thinking to answering
                                 send('thinking_done', { content: thinkingContent });
                                 send('status', { stage: 'answering', message: 'Menyusun jawaban...' });
                             }
@@ -260,18 +281,88 @@ export async function POST(request: NextRequest) {
                         }
                     }
 
-                    // FALLBACK: If reasoner model returned only reasoning_content, no content
-                    if (!answerContent.trim() && thinkingContent.trim()) {
-                        console.log('[Stream] CASUAL: Using thinking as answer fallback');
-                        // Clean thinking content - extract actual response
-                        const cleaned = stripThinkingPrefix(thinkingContent);
-                        answerContent = cleaned.answer || thinkingContent;
+                    // If no content was streamed during thinking, send thinking_done
+                    if (thinkingContent && answerContent === '') {
+                        const stripped = stripThinkingPrefix(thinkingContent);
+                        if (stripped.answer) {
+                            answerContent = stripped.answer;
+                            thinkingContent = stripped.thinking;
+                        }
                         send('thinking_done', { content: thinkingContent });
                         send('status', { stage: 'answering', message: 'Menyusun jawaban...' });
                         send('answer', { token: '', content: answerContent });
                     }
 
                     send('done', { processingTimeMs: Date.now() - startTime, model: modelInfo.id });
+                    close();
+                    return;
+                }
+
+                // ===== DEEP RESEARCH MODE (Advanced RAG) =====
+                if (deepResearch && (model === 'owlie-thinking' || model === 'owlie-max')) {
+                    console.log(`[Stream] Deep Research mode enabled, using Advanced RAG orchestrator`);
+                    send('status', {
+                        stage: 'planning',
+                        message: '🔬 Deep Research: Menganalisis pertanyaan...',
+                        model: { id: modelInfo.id, name: modelInfo.name, icon: modelInfo.icon }
+                    });
+
+                    let thinkingContent = '';
+                    let answerContent = '';
+                    let citations: { label: string; chunkId: string; anchorCitation: string; documentId: string; jenis: string; nomor: string | null; tahun: number | null; judul: string | null }[] = [];
+
+                    for await (const event of streamAdvancedRAG(question)) {
+                        if (event.type === 'status') {
+                            // Map orchestrator status to SSE events
+                            const statusMap: Record<string, string> = {
+                                'planning': 'Merencanakan pencarian...',
+                                'retrieving': 'Mencari dokumen relevan...',
+                                'expanding': 'Memperluas konteks...',
+                                'checking': 'Memeriksa kelengkapan...',
+                                'generating': 'Menyusun jawaban...',
+                            };
+                            send('status', {
+                                stage: event.text.includes('think') ? 'thinking' : 'retrieving',
+                                message: statusMap[event.text] || `🔬 ${event.text}`
+                            });
+                        } else if (event.type === 'thinking') {
+                            thinkingContent += event.text;
+                            send('thinking', { token: event.text, content: thinkingContent });
+                        } else if (event.type === 'content') {
+                            if (thinkingContent && answerContent === '') {
+                                send('thinking_done', { content: thinkingContent });
+                                send('status', { stage: 'answering', message: 'Menyusun jawaban mendalam...' });
+                            }
+                            answerContent += event.text;
+                            send('answer', { token: event.text, content: answerContent });
+
+                            // Extract citations from final data if available
+                            if (event.data && typeof event.data === 'object' && 'sources' in event.data) {
+                                const sources = (event.data as { sources: { anchorCitation: string; documentId: string; jenis: string; nomor: string | null; tahun: number | null; title: string | null }[] }).sources;
+                                citations = sources.map((s, i) => ({
+                                    label: `C${i + 1}`,
+                                    chunkId: '',
+                                    anchorCitation: s.anchorCitation,
+                                    documentId: s.documentId,
+                                    jenis: s.jenis,
+                                    nomor: s.nomor,
+                                    tahun: s.tahun,
+                                    judul: s.title,
+                                }));
+                            }
+                        }
+                    }
+
+                    // Send citations if available
+                    if (citations.length > 0) {
+                        send('citations', { citations });
+                    }
+
+                    send('done', {
+                        processingTimeMs: Date.now() - startTime,
+                        model: modelInfo.id,
+                        deepResearch: true
+                    });
                     close();
                     return;
                 }
@@ -420,9 +511,47 @@ Untuk mendapatkan informasi yang lebih akurat, silakan upload dokumen [nama regu
 
                 // 3. Build messages with history and tax rate context
                 const { messages: baseMessages, labeledChunks } = buildRAGMessages(question, chunks, mode, taxRateContext);
+
+                // --- TRUNCATION LOGIC ---
+                // DeepSeek context limit: ~131k tokens.
+                // We reserve:
+                // - 8k for completion
+                // - 10k for system prompt + current question + RAG context
+                // - Remaining ~100k for history? (Let's be safer: 30k for history)
+
+                // Helper to estimate tokens (rough avg: 1 token ~ 4 chars)
+                const MAX_HISTORY_CHARS = 100000; // ~25k tokens
+
+                let historyChars = 0;
+                const safeHistory = [];
+
+                // Iterate backwards to keep most recent
+                for (let i = history.length - 1; i >= 0; i--) {
+                    const msg = history[i];
+                    const contentStr = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+                    const len = contentStr.length;
+
+                    if (historyChars + len < MAX_HISTORY_CHARS) {
+                        safeHistory.unshift(msg);
+                        historyChars += len;
+                    } else {
+                        console.log(`[Stream] Truncated history at item ${i} (length: ${len}). Total history chars: ${historyChars}`);
+                        break;
+                    }
+                }
+
+                console.log(`[Stream] Final History: ${safeHistory.length} msgs, ~${historyChars} chars`);
+
+                // Also check total size including context
+                const systemPromptLen = (baseMessages[0].content as string).length;
+                const userContextLen = (baseMessages[1].content as string).length;
+                const totalEstimatedChars = historyChars + systemPromptLen + userContextLen;
+
+                console.log(`[Stream] Total Request Size: ~${totalEstimatedChars} chars (~${Math.round(totalEstimatedChars / 4)} tokens)`);
+
                 const messages = [
                     baseMessages[0], // System
-                    ...history,
+                    ...safeHistory,
                     baseMessages[1]  // User with context
                 ];
 

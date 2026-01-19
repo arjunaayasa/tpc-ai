@@ -49,7 +49,7 @@ export async function retrieve(
     const vectorString = `[${queryVector.join(',')}]`;
 
     // 2. Build dynamic filter conditions
-    const conditions: string[] = ['ce.embedding IS NOT NULL'];
+    const conditions: string[] = ['ce.embedding IS NOT NULL', 'd."isActiveForRAG" = true'];
     const params: (string | number)[] = [];
     let paramIndex = 1;
 
@@ -111,6 +111,7 @@ export async function retrieve(
             dm."statusAturan"
         FROM "ChunkEmbedding" ce
         JOIN "RegulationChunk" rc ON rc.id = ce."chunkId"
+        JOIN "Document" d ON d.id = rc."documentId"
         LEFT JOIN "DocumentMetadata" dm ON dm."documentId" = rc."documentId"
         ${whereClause}
         ORDER BY ce.embedding <=> $${paramIndex}::vector
